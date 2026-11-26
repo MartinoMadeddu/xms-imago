@@ -84,7 +84,7 @@ Timeline, History and Image Viewer.
   256 prims. See [Edit Session](usd.md#edit-session).
 - **P** over the Node Graph: its **Parameters** over the graph at its top
   right, under its buttons, in a thin border with no title, as in Houdini's
-  network editor; P again hides them. Drag their left edge, bottom edge or
+  network editor, half the graph's height at first; P again hides them. Drag their left edge, bottom edge or
   bottom left corner to size them, in width and height; the graph shows
   under the rest. They show the selection, as a Parameters pane does. Clicks
   and the wheel over them are theirs, not the graph's.
@@ -402,7 +402,8 @@ toggles which purposes (render starts off, as in usdview: render geometry
 without a proxy is drawn as its box, and is read only once render is on).
 Right-click a row to load or unload its payload (see
 [USD](usd.md), Payloads), or to draw it as Geometry, Bounding Box,
-Origin or as the scene says. Enter adds an Edit Primitive on the selection. A
+Origin or as the scene says. Enter adds an Edit Primitive on the selection; F
+brings the selected prim into view, opening the rows above it. A
 point instancer lists its instances only when its Instances row is opened. See
 [USD](usd.md#the-scene-explorer-and-the-viewer).
 

@@ -218,6 +218,12 @@ pub struct ViewerGpu {
     slots: Vec<usize>,
     line_buffer: Vec<(wgpu::Buffer, u32)>,
     generation: u64,
+    /// What the picture in the target was last drawn from (`ViewerPaint`):
+    /// the same again, it is not drawn again.
+    drawn: Option<u64>,
+    /// Frames still to draw whatever they show: the window's first frames
+    /// can be lost before it is on screen, a picture drawn then with them.
+    warm: u32,
     /// A render laid over the whole picture, behind the overlays.
     background: wgpu::RenderPipeline,
     rendered_layout: wgpu::BindGroupLayout,
@@ -628,6 +634,8 @@ impl ViewerGpu {
             slots: vec![],
             line_buffer: vec![],
             generation: u64::MAX,
+            drawn: None,
+            warm: 60,
             background,
             rendered_layout,
             rendered: None,
@@ -1512,6 +1520,39 @@ impl CallbackTrait for ViewerPaint {
             return vec![];
         };
         let f = &self.0;
+        // The picture is drawn again only when what it is drawn from changed:
+        // the window is drawn again for any pane (a graph panned, a field
+        // typed in), and a dense wireframe costs a lot to draw for nothing.
+        let fresh = gpu.target.as_ref().is_none_or(|t| t.size != [f.size[0].max(1), f.size[1].max(1)])
+            || gpu.display.view != f.display
+            || gpu.generation != f.scene.generation;
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for x in f.view_proj.to_cols_array().iter().chain(&f.eye.to_array()).chain(&f.clear) {
+                x.to_bits().hash(&mut h);
+            }
+            f.size.hash(&mut h);
+            f.scene.generation.hash(&mut h);
+            for v in [&f.overlay.depth, &f.overlay.top, &f.overlay.points] {
+                v.len().hash(&mut h);
+                for x in v.iter() {
+                    x.to_bits().hash(&mut h);
+                }
+            }
+            if let Some(Background::Still(image)) = &f.background {
+                (Arc::as_ptr(image) as usize).hash(&mut h);
+            }
+            h.finish()
+        };
+        // A render coming in, or a capture: drawn every frame.
+        let changing = matches!(f.background, Some(Background::Live(_))) || f.capture.as_ref().is_some_and(|c| c.wanted());
+        if gpu.warm > 0 {
+            gpu.warm -= 1;
+        } else if !fresh && !changing && gpu.drawn == Some(key) {
+            return vec![];
+        }
+        gpu.drawn = Some(key);
         gpu.ensure_target(device, [f.size[0].max(1), f.size[1].max(1)]);
         if gpu.display.view != f.display {
             gpu.display = display(

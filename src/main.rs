@@ -1265,7 +1265,7 @@ impl Panes<'_> {
         );
         let h = fit(
             self.tabs.parameters_height,
-            canvas.height(),
+            (canvas.height() * 0.5).round(),
             Self::PARAMETERS_OVER_LOW,
             canvas.height(),
         );

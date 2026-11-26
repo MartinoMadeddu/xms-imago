@@ -3057,6 +3057,9 @@ pub struct SceneHierarchy {
     draw_modes: std::collections::HashMap<String, DrawMode>,
     /// Prims to edit, asked for with Enter or Edit Selected (right-click): an
     /// Edit Primitive naming them is added after the viewed operator.
+    /// A prim to bring into view in the Scene Explorer (F over it): its
+    /// rows above opened, and the frames left to find its row.
+    pub focus: Option<(String, u8)>,
     pub edit_request: Option<Vec<String>>,
     /// The variant sets of the prims of a composed stage that have some, by
     /// path: their rows say so, and their right-click chooses.
@@ -3191,6 +3194,42 @@ impl SceneHierarchy {
             o.expanded = open;
         }
         self.display_revision += 1;
+    }
+
+    /// The first selected prim brought into view in the Scene Explorer: the
+    /// rows above it opened, and its row scrolled to (`focus`).
+    pub fn reveal_selected(&mut self) {
+        let Some(path) = self.chosen.prims.first().cloned() else {
+            return;
+        };
+        // An instance: under its instancer.
+        let prim = crate::core::instancing::instance_path(&path).map_or(path.as_str(), |(i, _)| i).to_string();
+        let mut above: Vec<String> = vec![];
+        let mut at = String::new();
+        for part in prim.split('/').filter(|p| !p.is_empty()) {
+            if !at.is_empty() || prim.starts_with('/') {
+                above.push(at.clone());
+            }
+            at = format!("{at}/{part}");
+        }
+        above.retain(|p| !p.is_empty());
+        if path != prim {
+            above.push(prim.clone());
+        }
+        let mut stage = false;
+        for p in &above {
+            self.expanded.insert(p.clone(), true);
+            for o in self.objects.iter_mut().filter(|o| o.key == *p || o.path.as_deref() == Some(p)) {
+                if !o.expanded {
+                    o.expanded = true;
+                    stage |= o.stage_path.is_some();
+                }
+            }
+        }
+        if stage {
+            self.display_revision += 1;
+        }
+        self.focus = Some((path, 30));
     }
 
     /// Open or close a row. Opening a point instancer's Instances row lists

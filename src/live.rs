@@ -447,7 +447,10 @@ impl Session {
                     // A final render is done; IPR waits for changes.
                     self.rendering &= self.ipr;
                 }
-                xms_render::Event::Failed(why) | xms_render::Event::Note(why) => failed = Some(why),
+                xms_render::Event::Failed(why) => failed = Some(why),
+                // A note (the scene's own colour manager used, say) is not a
+                // failure: the render goes on, and the note goes in the log.
+                xms_render::Event::Note(why) => self.logged(format!("Note: {why}")),
                 xms_render::Event::Images(_) => {}
                 xms_render::Event::Log(line) => self.logged(line),
             }

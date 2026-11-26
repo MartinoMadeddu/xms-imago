@@ -134,9 +134,31 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                 }
             }
 
-            egui::ScrollArea::vertical()
+            // F asked for a prim: its row's place, once it is listed, in the
+            // middle of the view.
+            let row_step = ROW_H + ui.spacing().item_spacing.y;
+            let mut scroll = egui::ScrollArea::vertical()
                 .id_salt("scene_explorer_scroll")
-                .auto_shrink([false, false])
+                .auto_shrink([false, false]);
+            if let Some((path, tries)) = hierarchy.focus.take() {
+                let row = shown
+                    .iter()
+                    .position(|&(i, _)| hierarchy.objects[i].path.as_deref() == Some(path.as_str()));
+                match row {
+                    Some(r) => {
+                        let view = ui.available_height();
+                        scroll = scroll.vertical_scroll_offset((r as f32 * row_step - view * 0.5).max(0.0));
+                    }
+                    // Not listed yet (a stage's rows are made again): the
+                    // next frames look again.
+                    None if tries > 0 => {
+                        hierarchy.focus = Some((path, tries - 1));
+                        ui.ctx().request_repaint();
+                    }
+                    None => {}
+                }
+            }
+            scroll
                 .show_rows(ui, ROW_H, shown.len(), |ui, range| {
                     for &(idx, last_mask) in &shown[range] {
                         let obj   = &hierarchy.objects[idx];
@@ -377,6 +399,14 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             }
             if let Some((path, mode)) = draw_set.take() {
                 hierarchy.set_draw_mode(&path, mode);
+            }
+            // F, the pointer over the explorer: the selected prim brought
+            // into view, the rows above it opened.
+            if ui.rect_contains_pointer(ui.max_rect())
+                && !ui.ctx().egui_wants_keyboard_input()
+                && ui.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.is_none())
+            {
+                hierarchy.reveal_selected();
             }
             // Enter, the pointer over the explorer: edit the selected prims.
             let enter = ui.rect_contains_pointer(ui.max_rect())

@@ -331,7 +331,7 @@ pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
 #[derive(Default)]
 pub struct TabStates {
     /// The Parameters over the Node Graph in use (P over it), at its top
-    /// right, and their size (0: the first one; the full height).
+    /// right, and their size (0: the first one; half the height).
     pub parameters_over: bool,
     pub parameters_width: f32,
     pub parameters_height: f32,

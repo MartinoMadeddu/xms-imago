@@ -33,24 +33,38 @@ pub fn rows(ui: &mut egui::Ui, steps: &mut Vec<Step>) -> Option<Ask> {
             for (k, s) in steps.iter_mut().enumerate() {
                 f.ui.horizontal(|ui| {
                     ui.checkbox(&mut s.on, "").on_hover_text("On: applied. Off: left out, the step kept");
-                    ui.field(egui::TextEdit::singleline(&mut s.name).desired_width(ui.available_width() - 92.0));
-                    let paths: Vec<&String> = s.prims.keys().collect();
-                    let list = paths.iter().map(|p| p.as_str()).collect::<Vec<_>>().join("\n");
-                    ui.label(egui::RichText::new(format!("{}", paths.len())).weak())
+                    // The buttons and the count at the right, laid out right
+                    // to left; the name takes what is left, the same width
+                    // on every row, a long one cut off in the field.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button(icons::X).on_hover_text("Delete the step").clicked() {
+                            gone = Some(k);
+                        }
+                        ui.add_enabled_ui(k + 1 < n, |ui| {
+                            if ui.small_button(icons::CARET_DOWN).on_hover_text("Move down").clicked() {
+                                up = Some(k + 1);
+                            }
+                        });
+                        ui.add_enabled_ui(k > 0, |ui| {
+                            if ui.small_button(icons::CARET_UP).on_hover_text("Move up").clicked() {
+                                up = Some(k);
+                            }
+                        });
+                        let paths: Vec<&String> = s.prims.keys().collect();
+                        let list = paths.iter().map(|p| p.as_str()).collect::<Vec<_>>().join("\n");
+                        ui.add_sized(
+                            [24.0, ui.spacing().interact_size.y],
+                            egui::Label::new(egui::RichText::new(format!("{}", paths.len())).weak()),
+                        )
                         .on_hover_text(format!("Prims:\n{list}"));
-                    ui.add_enabled_ui(k > 0, |ui| {
-                        if ui.small_button(icons::CARET_UP).on_hover_text("Move up").clicked() {
-                            up = Some(k);
-                        }
+                        let w = ui.available_width().max(40.0);
+                        ui.field(
+                            egui::TextEdit::singleline(&mut s.name)
+                                .desired_width(w)
+                                .clip_text(true),
+                        )
+                        .on_hover_text(s.name.clone());
                     });
-                    ui.add_enabled_ui(k + 1 < n, |ui| {
-                        if ui.small_button(icons::CARET_DOWN).on_hover_text("Move down").clicked() {
-                            up = Some(k + 1);
-                        }
-                    });
-                    if ui.small_button(icons::X).on_hover_text("Delete the step").clicked() {
-                        gone = Some(k);
-                    }
                 });
             }
             if let Some(k) = up {

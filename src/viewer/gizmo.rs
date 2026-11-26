@@ -167,9 +167,35 @@ pub fn selected_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> 
 /// The places of `chosen` in the scene viewed, whatever operator is selected
 /// (the Selection bar's). Nothing for none, or more than `MAX_PRIMS`.
 pub fn scene_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
+    use std::hash::{Hash, Hasher};
     if chosen.is_empty() || chosen.len() > MAX_PRIMS {
         return vec![];
     }
+    // Kept while the scene viewed, the time and the selection are the same:
+    // the handles and the Selection bar ask every frame, and looking prims up
+    // goes through the whole scene.
+    static KEPT: std::sync::Mutex<Option<(u64, Vec<Place>)>> = std::sync::Mutex::new(None);
+    let key = graph.view_flag.and_then(|v| graph.cook_key(v, graph.view_output)).map(|k| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (k, graph.time.to_bits(), chosen).hash(&mut h);
+        h.finish()
+    });
+    if let Some(key) = key {
+        if let Some((k, places)) = KEPT.lock().unwrap().as_ref() {
+            if *k == key {
+                return places.clone();
+            }
+        }
+    }
+    let places = looked_up(graph, chosen);
+    if let Some(key) = key {
+        *KEPT.lock().unwrap() = Some((key, places.clone()));
+    }
+    places
+}
+
+/// `scene_places`, looked up in the scene.
+fn looked_up(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
     let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
     let Some(crate::types::EvalResult::Named(prims)) = graph.evaluate_for_viewport_packed(&pass) else {
         return vec![];

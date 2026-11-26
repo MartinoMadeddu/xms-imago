@@ -8,6 +8,27 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-11-26
+
+### Interface
+
+- **F over the Scene Explorer** brings the selected prim into view, opening
+  the rows above it.
+- **P's Parameters** open at half the graph's height.
+- **Edit Session steps** fit the Parameters, their names all as wide.
+
+### Viewer
+
+- **Selecting no longer slows Imago**: the selection's places are kept
+  between frames, not looked up through the whole scene each frame.
+- **The Viewer is drawn only when its picture changes**: panning the graph
+  or typing in a pane no longer redraws a dense wireframe.
+
+### Rendering
+
+- **Arnold in the Viewer keeps rendering** when the scene brings its own
+  OCIO colour manager: that note had stopped it, as if it were an error.
+
 ## [0.3.10] - 2026-11-25
 
 ### Interface
