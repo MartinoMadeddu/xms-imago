@@ -8,16 +8,16 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-26
+
 ### Interface
 
 - **The Viewer starts in Hidden Line Removal.**
-
 - **Viewer overlays**: FPS, Memory, Camera, Selection and Render at the
   Viewer's top right, chosen in File > Settings > Viewer > Overlays.
 - **Settings**: Parameters' tabs inside its pages, and the Theme on its
   Interface page.
 - **File > Settings** opens the Settings window directly.
-
 - **Selection bar closer to XSI's**: the big Select arrow with what a click
   picks beside it; the tools; Translate, Rotate and Scale stacked, X, Y and
   Z down each beside a button for its tool, always shown.
@@ -33,6 +33,16 @@ version's heading when you tag it.
 
 - **Arnold's clamp Max Value is 0 for no clamping**, not 1e30: at 0
   nothing is written and Arnold's own default applies.
+
+### Fixes
+
+- **Prims dropped from the Scene Explorer onto an operator** (Material
+  Binding, Light Linker, any with Prims Location) are taken again.
+- **ICE instances no longer vanish** from the Viewer and the render after
+  selecting.
+- **The Viewer comes back from a render** at once, not on the next camera
+  move.
+- **xms_main_layout is now xms_3split_layout.**
 
 ## [0.3.11] - 2026-11-26
 
