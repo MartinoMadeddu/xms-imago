@@ -4,6 +4,7 @@ pub mod keying;
 pub mod links;
 pub mod local;
 pub mod nodes;
+pub mod session;
 pub mod spare;
 pub mod ui;
 
@@ -248,6 +249,10 @@ pub struct Connection {
 
 // NODE GRAPH STATE
 
+/// How far below the selected operator one added after it goes, in the
+/// graph's units.
+const AFTER: f32 = 110.0;
+
 /// A node's name as the graph keeps it: no white space, each space (or tab) an
 /// underscore, as it is typed. A name is how an operator is found and what a
 /// material is called, so it is one word.
@@ -297,6 +302,9 @@ pub struct NodeGraphState {
     pub tab_menu_screen_pos: Option<egui::Pos2>,
     pub tab_menu_canvas_pos: Option<egui::Pos2>,
     pub zoom: f32,
+    /// The size of the graph's canvas as last drawn: where the middle of the
+    /// view is, for an operator added with nothing selected.
+    pub canvas_size: egui::Vec2,
     pub selected_nodes: Vec<NodeId>,
     pub marquee_start: Option<egui::Pos2>,
     pub selected_connection: Option<ConnectionId>,
@@ -470,6 +478,7 @@ impl Default for NodeGraphState {
             next_node_id: 0,
             next_connection_id: 0,
             selected_node: None,
+            canvas_size: egui::vec2(800.0, 600.0),
             dragging_node: None,
             drag_offset: egui::Vec2::ZERO,
             connecting_from: None,
@@ -720,6 +729,7 @@ impl NodeGraphState {
             | NodeType::LayerBreak
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
+            | NodeType::EditSession { .. }
             | NodeType::Reparent { .. }
             | NodeType::Rename { .. }
             | NodeType::Duplicate { .. }
@@ -1165,6 +1175,65 @@ impl NodeGraphState {
     /// the view moves on to its next output, for operators with several (Load
     /// FBX: Clip, Geometry, Rest). The flag never goes off: one operator is
     /// always viewed, as Houdini's display flag.
+    /// An operator added after the selected one, as a click in the Tools
+    /// pane adds it (as Shake's tool tabs did): below it, fed by its first
+    /// output, and feeding what that output fed, the view flag following it
+    /// on where the selected one had it. One with no input (a Cube) goes
+    /// beside it, on its own. Nothing selected: in the middle of the view.
+    /// The operator made is selected.
+    pub fn add_after_selected(&mut self, node_type: NodeType) -> NodeId {
+        let name = ui::default_name(&node_type);
+        let after = self
+            .selected_node
+            .and_then(|s| self.nodes.iter().find(|n| n.id == s))
+            .map(|n| (n.id, n.position, !n.outputs.is_empty()));
+        let middle = egui::pos2(
+            (self.canvas_size.x / 2.0 - self.pan_offset.x) / self.zoom,
+            (self.canvas_size.y / 2.0 - self.pan_offset.y) / self.zoom,
+        );
+        let pos = match after {
+            Some((_, p, _)) => p + egui::vec2(0.0, AFTER),
+            None => middle - egui::vec2(80.0, 25.0),
+        };
+        let id = self.add_node(name, node_type, pos);
+        if let Some((from, p, has_out)) = after {
+            let goes_in = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .is_some_and(|n| !n.inputs.is_empty() && !n.outputs.is_empty());
+            if goes_in && has_out {
+                // What the selected one's first output fed, the new one feeds,
+                // moved down out of its way.
+                let fed: Vec<Connection> = self
+                    .connections
+                    .iter()
+                    .filter(|c| c.from_node == from && c.from_output == 0)
+                    .cloned()
+                    .collect();
+                for c in &fed {
+                    self.remove_connection(c.id);
+                    self.add_connection(id, 0, c.to_node, c.to_input);
+                    if let Some(n) = self.nodes.iter_mut().find(|n| n.id == c.to_node) {
+                        if n.position.y < pos.y + AFTER {
+                            n.position.y += AFTER;
+                        }
+                    }
+                }
+                self.add_connection(from, 0, id, 0);
+                if self.view_flag == Some(from) {
+                    self.set_view_flag(id);
+                }
+            } else if let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) {
+                n.position = p + egui::vec2(220.0, 0.0);
+            }
+        }
+        self.selected_node = Some(id);
+        self.selected_nodes = vec![id];
+        self.selected_connection = None;
+        id
+    }
+
     pub fn set_view_flag(&mut self, node_id: NodeId) {
         let outputs = self
             .nodes
@@ -2602,6 +2671,55 @@ mod cook_tests {
 
     /// Merge takes any number of inputs, keeping one free, and merges them all,
     /// the later stronger.
+    /// An operator added after the selected one (a click in the Tools pane):
+    /// fed by it, feeding what it fed, moved below it, selected, the view
+    /// flag passed on. One with no input goes beside it, on its own; with
+    /// nothing selected, in the middle of the view.
+    #[test]
+    fn an_operator_clicked_in_the_tools_goes_after_the_selected_one() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node(
+            "Cube".into(),
+            NodeType::CreateCube {
+                size: 1.0,
+                location: String::new(),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let end = g.add_node("End".into(), NodeType::PassThrough, egui::pos2(0.0, 60.0));
+        g.add_connection(cube, 0, end, 0);
+        g.view_flag = Some(cube);
+        g.selected_node = Some(cube);
+        let a = g.add_after_selected(NodeType::PassThrough);
+        let mut pairs: Vec<(NodeId, NodeId)> = g.connections.iter().map(|c| (c.from_node, c.to_node)).collect();
+        pairs.sort_by_key(|(from, _)| from.0);
+        assert_eq!(pairs, [(cube, a), (a, end)]);
+        assert_eq!((g.selected_node, g.selected_nodes.clone()), (Some(a), vec![a]));
+        assert_eq!(g.view_flag, Some(a), "the view flag passed on");
+        let y = |g: &NodeGraphState, id: NodeId| g.nodes.iter().find(|n| n.id == id).unwrap().position.y;
+        assert!(
+            y(&g, a) > y(&g, cube) && y(&g, end) > y(&g, a),
+            "below it, what it fed moved down"
+        );
+        // No input: beside it, nothing wired.
+        let wires = g.connections.len();
+        let sphere = g.add_after_selected(NodeType::CreateSphere {
+            radius: 0.5,
+            segments: 16,
+            location: String::new(),
+        });
+        assert_eq!(g.connections.len(), wires);
+        assert_eq!(y(&g, sphere), y(&g, a));
+        // Nothing selected: the middle of the view.
+        g.selected_node = None;
+        g.pan_offset = egui::vec2(100.0, 50.0);
+        g.zoom = 2.0;
+        g.canvas_size = egui::vec2(800.0, 600.0);
+        let free = g.add_after_selected(NodeType::PassThrough);
+        let at = g.nodes.iter().find(|n| n.id == free).unwrap().position;
+        assert_eq!(at, egui::pos2(150.0 - 80.0, 125.0 - 25.0));
+    }
+
     #[test]
     fn a_node_goes_into_a_wire_as_houdini_puts_it() {
         let mut g = NodeGraphState::default();

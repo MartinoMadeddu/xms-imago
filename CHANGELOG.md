@@ -8,6 +8,34 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- **Tools pane**: the operators' categories as coloured buttons down a
+  column, after XSI's tool bars; a click opens a box of the category's
+  operators, to drag onto the Node Graph (onto a wire to go into it), as in
+  Shake, or click to add after the selected operator. New layout
+  **xms_xsi_layout** puts it down the whole left side.
+- **P over the Node Graph** shows the selected operator's Parameters over
+  the graph at its top right, in a thin border, as Houdini's network editor
+  does; drag their left edge, bottom edge or corner to size them.
+- **Tools and Selection bars** down the window's sides: fixed, not tabs. Window shows and hides them; layouts keep them.
+- **Selection bar**: what is selected in the Viewer, after XSI's main command
+  panel: what a click picks (prim, model, top), the move, rotate and scale
+  tools, the selection's scale, rotation and translation (local or global)
+  to type in, and Edit Selected, Hide, Show, Deactivate. Down the right of
+  xms_xsi_layout.
+- **Prims selected get the Viewer's handles** when the selected operator has
+  none of its own: drag to move, rotate or scale them, each about its own
+  pivot.
+
+### USD
+
+- **Edit Session**: what you do to prims from the Viewer and the Selection
+  bar goes into one operator, put in after the one viewed on the first edit,
+  as steps: one per selection edited, absolute values, the last to set one
+  wins. Switch steps off, rename, reorder or delete them; Freeze makes them
+  one, Explode puts them in the graph as Edit Primitives.
+
 ## [0.3.9] - 2026-11-24
 
 ### USD

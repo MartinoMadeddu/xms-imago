@@ -1,5 +1,6 @@
 pub mod collections;
 pub mod edit_primitive;
+pub mod edit_session;
 pub mod form;
 pub mod frames;
 pub mod light;

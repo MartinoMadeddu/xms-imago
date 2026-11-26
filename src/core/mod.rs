@@ -15,6 +15,7 @@ pub mod collections;
 /// background, output and progress.
 pub mod command;
 pub mod edit_primitive;
+pub mod edit_session;
 pub mod human;
 pub mod human_ik;
 /// Point instancers: their prototypes' copies made from their points.

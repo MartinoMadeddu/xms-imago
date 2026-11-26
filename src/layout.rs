@@ -46,10 +46,16 @@ pub enum Pane {
     ImageViewer,
     /// The Light Linker's table, big, with the scene's lights beside it.
     LightLinker,
+    /// Every operator by category, to click after the selected one or drag
+    /// onto the Node Graph (`tools`).
+    Tools,
+    /// What is selected in the Viewer, its transform and edits, after XSI's
+    /// main command panel (`selection_bar`).
+    Selection,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 11] = [
+    pub const ALL: [Pane; 13] = [
         Pane::Viewer,
         Pane::NodeGraph,
         Pane::SceneExplorer,
@@ -61,6 +67,8 @@ impl Pane {
         Pane::CurveEditor,
         Pane::ImageViewer,
         Pane::LightLinker,
+        Pane::Tools,
+        Pane::Selection,
     ];
 
     /// How a tab of this pane chooses the operator it shows, unless told
@@ -78,10 +86,22 @@ impl Pane {
     /// others are one of a kind: what they show, and how, is the program's
     /// (one Viewer, one Timeline, one History), or they share what they draw
     /// with (the Image Viewer's image on the GPU).
+    /// The Tools and the Selection bar: fixed bars down the window's sides,
+    /// not tabs (`Bars`).
+    pub fn is_bar(self) -> bool {
+        matches!(self, Pane::Tools | Pane::Selection)
+    }
+
     pub fn multiple(self) -> bool {
         !matches!(
             self,
-            Pane::Viewer | Pane::Timeline | Pane::History | Pane::Retired | Pane::ImageViewer
+            Pane::Viewer
+                | Pane::Timeline
+                | Pane::History
+                | Pane::Retired
+                | Pane::ImageViewer
+                | Pane::Tools
+                | Pane::Selection
         )
     }
 
@@ -99,6 +119,8 @@ impl Pane {
             Pane::CurveEditor => "Curve Editor",
             Pane::ImageViewer => "Image Viewer",
             Pane::LightLinker => "Light Linker",
+            Pane::Tools => "Tools",
+            Pane::Selection => "Selection",
         }
     }
 }
@@ -206,6 +228,63 @@ impl Tab {
 /// another has, get a new one; new tabs are numbered above them all.
 /// The tabs of panes Imago no longer has (`Pane::Retired`) taken away; the
 /// panes beside them take their room.
+/// The fixed bars down the window's sides, outside the panes: the Tools on
+/// the left, the Selection bar on the right. They are not tabs: they cannot be
+/// moved, sized or closed but from the Window menu, and a layout holds
+/// whether each is shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bars {
+    pub tools: bool,
+    pub selection: bool,
+}
+
+impl Bars {
+    /// A bar's state, if `pane` is one.
+    pub fn of(&self, pane: Pane) -> Option<bool> {
+        match pane {
+            Pane::Tools => Some(self.tools),
+            Pane::Selection => Some(self.selection),
+            _ => None,
+        }
+    }
+
+    fn set(&mut self, pane: Pane, on: bool) {
+        match pane {
+            Pane::Tools => self.tools = on,
+            Pane::Selection => self.selection = on,
+            _ => {}
+        }
+    }
+}
+
+/// The bars a layout's text shows: its `bars`, or, written before they were
+/// bars, its Tools and Selection tabs.
+pub fn bars_of(json: &str) -> Bars {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Bars::default();
+    };
+    if let Some(b) = value.get("bars") {
+        let on = |k: &str| b.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+        return Bars {
+            tools: on("tools"),
+            selection: on("selection"),
+        };
+    }
+    let text = value.get("dock").unwrap_or(&value).to_string();
+    let has = |p: &str| text.contains(&format!("\"pane\":\"{p}\""));
+    Bars {
+        tools: has("Tools"),
+        selection: has("Selection"),
+    }
+}
+
+/// Tabs of the bars out of a dock: they are drawn as bars (`Bars`).
+fn without_bars(dock: &mut DockState<Tab>) {
+    while let Some(at) = dock.find_tab_from(|t| t.pane.is_bar()) {
+        dock.remove_tab(at);
+    }
+}
+
 fn retired(dock: &mut DockState<Tab>) {
     while let Some(at) = dock.find_tab_from(|t| t.pane == Pane::Retired) {
         dock.remove_tab(at);
@@ -237,13 +316,13 @@ fn find_in(tree: &egui_dock::Tree<Tab>, pane: Pane) -> Option<(NodeIndex, usize)
 /// Whether, with `open` the tabs open, a tab of `pane` can be added: a pane
 /// that can be open twice, or one of a kind while none is open.
 pub fn may_add(open: &[Tab], pane: Pane) -> bool {
-    pane.multiple() || !open.iter().any(|t| t.pane == pane)
+    !pane.is_bar() && (pane.multiple() || !open.iter().any(|t| t.pane == pane))
 }
 
 /// Whether, with `open` the tabs open, tab `tab` can show `pane` instead: its
 /// own, one that can be open twice, or one of a kind no other tab shows.
 pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
-    tab.pane == pane || pane.multiple() || !open.iter().any(|t| t.pane == pane && t.id != tab.id)
+    !pane.is_bar() && (tab.pane == pane || pane.multiple() || !open.iter().any(|t| t.pane == pane && t.id != tab.id))
 }
 
 /// What tabs keep of their own, beyond the first of their pane (which uses
@@ -251,6 +330,11 @@ pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
 /// MaterialX), a Curve Editor's, a UV Editor's. Forgotten when the tab closes.
 #[derive(Default)]
 pub struct TabStates {
+    /// The Parameters over the Node Graph in use (P over it), at its top
+    /// right, and their size (0: the first one; the full height).
+    pub parameters_over: bool,
+    pub parameters_width: f32,
+    pub parameters_height: f32,
     /// Node Graph tabs not the one last used: their views, swapped into the
     /// graph while each is drawn.
     pub graphs: std::collections::HashMap<u32, (crate::node_graph::GraphView, crate::ice::GraphNavigation)>,
@@ -337,6 +421,8 @@ impl Edge {
 
 pub struct Layout {
     pub dock: DockState<Tab>,
+    /// The fixed bars down its sides.
+    pub bars: Bars,
     /// Locked: tabs cannot be moved, floated or closed. Dividers still resize.
     pub locked: bool,
     /// The layout as last written to disk.
@@ -349,11 +435,12 @@ pub struct Layout {
 
 /// The layouts Imago comes with, in Window > Layout: name (its file's),
 /// the file. The first is the default until another is saved as default.
-pub const PRESETS: [(&str, &str); 3] = [
+pub const PRESETS: [(&str, &str); 4] = [
     (
         "xms_main_layout",
         include_str!("../assets/layouts/xms_main_layout.json"),
     ),
+    ("xms_xsi_layout", include_str!("../assets/layouts/xms_xsi_layout.json")),
     (
         "xms_2split_layout",
         include_str!("../assets/layouts/xms_2split_layout.json"),
@@ -388,6 +475,15 @@ fn default_file() -> Option<std::path::PathBuf> {
 fn saved_default() -> Option<DockState<Tab>> {
     let text = std::fs::read_to_string(default_file()?).ok()?;
     from_json(&text).map(|(dock, _)| dock)
+}
+
+/// The bars of the default layout (`default_dock`).
+pub fn default_bars() -> Bars {
+    let saved = default_file().and_then(|f| std::fs::read_to_string(f).ok());
+    match saved.filter(|t| from_json(t).is_some()) {
+        Some(t) => bars_of(&t),
+        None => bars_of(PRESETS[0].1),
+    }
 }
 
 /// Whether a layout has been saved as default.
@@ -433,6 +529,33 @@ pub fn built_dock() -> DockState<Tab> {
     dock
 }
 
+/// After XSI: the Viewer over the Scene Explorer (the Primitive Inspector,
+/// Light Linker and History behind it), and the Node Graph, wide (UV and
+/// Curve Editors behind): its Parameters over it, on P. The Timeline along
+/// the bottom. No Parameters pane: Window > Parameters docks one. With the
+/// Tools and Selection bars down its sides (`Bars`, written with it). What
+/// `xms_xsi_layout.json` was written from.
+pub fn xsi_dock() -> DockState<Tab> {
+    let tabs = |panes: &[Pane]| panes.iter().map(|p| Tab::new(*p)).collect::<Vec<Tab>>();
+    let mut dock = DockState::new(tabs(&[Pane::Viewer, Pane::ImageViewer]));
+    let s = dock.main_surface_mut();
+    // The Tools and the Selection bar are bars down its sides (`Bars`), the
+    // Timeline between them.
+    let [work, _timeline] = s.split_below(NodeIndex::root(), 0.871, tabs(&[Pane::Timeline]));
+    let [view, _graph] = s.split_right(work, 0.45, tabs(&[Pane::NodeGraph, Pane::UvEditor, Pane::CurveEditor]));
+    s.split_below(
+        view,
+        0.63,
+        tabs(&[
+            Pane::SceneExplorer,
+            Pane::PrimInspector,
+            Pane::LightLinker,
+            Pane::History,
+        ]),
+    );
+    dock
+}
+
 /// A layout is usable when no tab number is in it twice, nor a pane of one
 /// of a kind (`Pane::multiple`). Panes that are missing are closed, and can be
 /// shown again from the Panes menu.
@@ -450,6 +573,11 @@ pub fn is_valid(dock: &DockState<Tab>) -> bool {
 /// infinite, which JSON cannot hold: they are written as zero. They are worked
 /// out again on the first frame anyway.
 pub fn to_json(dock: &DockState<Tab>, locked: bool) -> Option<String> {
+    to_json_with(dock, locked, Bars::default())
+}
+
+/// `to_json`, with the bars shown.
+pub fn to_json_with(dock: &DockState<Tab>, locked: bool, bars: Bars) -> Option<String> {
     fn fix(v: &mut serde_json::Value, in_rect: bool) {
         match v {
             serde_json::Value::Null if in_rect => *v = serde_json::json!(0.0),
@@ -468,7 +596,11 @@ pub fn to_json(dock: &DockState<Tab>, locked: bool) -> Option<String> {
     }
     let mut value = serde_json::to_value(dock).ok()?;
     fix(&mut value, false);
-    serde_json::to_string(&serde_json::json!({ "locked": locked, "dock": value })).ok()
+    let mut out = serde_json::json!({ "locked": locked, "dock": value });
+    if bars != Bars::default() {
+        out["bars"] = serde_json::json!({ "tools": bars.tools, "selection": bars.selection });
+    }
+    serde_json::to_string(&out).ok()
 }
 
 /// Layout and lock state from text. Files written before the lock existed hold
@@ -484,6 +616,7 @@ pub fn from_json(json: &str) -> Option<(DockState<Tab>, bool)> {
     };
     let mut dock: DockState<Tab> = serde_json::from_value(dock).ok()?;
     retired(&mut dock);
+    without_bars(&mut dock);
     numbered(&mut dock);
     is_valid(&dock).then_some((dock, locked))
 }
@@ -503,6 +636,7 @@ impl Default for Layout {
         let locked = from_json(&last).map(|(_, locked)| locked).unwrap_or(false);
         let mut layout = Self {
             dock: default_dock(),
+            bars: default_bars(),
             locked,
             saved: String::new(),
             sized: vec![],
@@ -517,12 +651,18 @@ impl Layout {
     /// Back to the default layout (Reset layout, File > New).
     pub fn reset(&mut self) {
         self.set_dock(default_dock());
+        self.bars = default_bars();
     }
 
     /// One of the layouts Imago comes with, by name.
     pub fn use_preset(&mut self, name: &str) -> Result<(), String> {
         let dock = preset(name).ok_or_else(|| format!("no layout {name}"))?;
         self.set_dock(dock);
+        self.bars = PRESETS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, t)| bars_of(t))
+            .unwrap_or_default();
         Ok(())
     }
 
@@ -644,6 +784,9 @@ impl Layout {
 
     /// Whether any tab of `pane` is open.
     pub fn is_open(&self, pane: Pane) -> bool {
+        if let Some(on) = self.bars.of(pane) {
+            return on;
+        }
         self.first(pane).is_some()
     }
 
@@ -664,6 +807,10 @@ impl Layout {
 
     /// Close every tab of a pane. It can be shown again with `show`.
     pub fn hide(&mut self, pane: Pane) {
+        if pane.is_bar() {
+            self.bars.set(pane, false);
+            return;
+        }
         while let Some(at) = self.dock.find_tab_from(|t| t.pane == pane) {
             self.dock.remove_tab(at);
         }
@@ -677,6 +824,10 @@ impl Layout {
 
     /// Show a closed pane, as a tab of the main area.
     pub fn show(&mut self, pane: Pane) {
+        if pane.is_bar() {
+            self.bars.set(pane, true);
+            return;
+        }
         if self.is_open(pane) {
             return;
         }
@@ -797,7 +948,7 @@ impl Layout {
 
     /// Write the layout to a file of the user's choosing.
     pub fn save_as(&self, path: &std::path::Path) -> Result<(), String> {
-        let text = to_json(&self.dock, self.locked).ok_or("the layout could not be written as text")?;
+        let text = to_json_with(&self.dock, self.locked, self.bars).ok_or("the layout could not be written as text")?;
         std::fs::write(path, text).map_err(|e| e.to_string())
     }
 
@@ -808,12 +959,13 @@ impl Layout {
         let (dock, locked) = from_json(&text).ok_or("not a layout file")?;
         self.locked = locked;
         self.set_dock(dock);
+        self.bars = bars_of(&text);
         Ok(())
     }
 
     /// Write the layout if it changed since the last write.
     pub fn save_if_changed(&mut self) {
-        let Some(text) = to_json(&self.dock, self.locked) else {
+        let Some(text) = to_json_with(&self.dock, self.locked, self.bars) else {
             return;
         };
         if text == self.saved {
@@ -836,13 +988,16 @@ mod tests {
     fn layout() -> Layout {
         Layout {
             dock: main_dock(),
+            bars: Bars::default(),
             locked: false,
             saved: String::new(),
             sized: vec![],
             tab_drag: None,
         }
     }
-    const ALL: usize = Pane::ALL.len();
+    /// The panes open in the default layout: every one but the Tools and the
+    /// Selection bar.
+    const ALL: usize = Pane::ALL.len() - 2;
     /// The first tab of `pane`, wherever it is.
     fn find(dock: &DockState<Tab>, pane: Pane) -> Option<egui_dock::TabPath> {
         dock.find_tab_from(|t| t.pane == pane)
@@ -898,6 +1053,7 @@ mod tests {
         assert_eq!(to_json(&back, true).unwrap(), json);
         let back = Layout {
             dock: back,
+            bars: Bars::default(),
             locked,
             saved: json,
             sized: vec![],
@@ -1077,6 +1233,7 @@ mod tests {
         assert!(locked);
         let l = Layout {
             dock,
+            bars: Bars::default(),
             locked,
             saved: json,
             sized: vec![],
@@ -1109,8 +1266,25 @@ mod tests {
             let dock = preset(name).unwrap_or_else(|| panic!("{name} does not read"));
             assert!(is_valid(&dock), "{name}");
         }
-        assert_eq!(main_dock().iter_all_tabs().count(), Pane::ALL.len());
+        // Every pane but the Tools and the Selection bar, which the XSI
+        // layout has.
+        assert_eq!(main_dock().iter_all_tabs().count(), Pane::ALL.len() - 2);
         assert_eq!(preset("xms_2split_layout").unwrap().iter_all_tabs().count(), 7);
+        // Every pane but the Parameters, which go over the Node Graph, and
+        // the bars, which are bars down its sides.
+        let xsi = preset("xms_xsi_layout").unwrap();
+        assert_eq!(xsi.iter_all_tabs().count(), Pane::ALL.len() - 3);
+        assert!(xsi.find_tab_from(|t| t.pane == Pane::Parameters).is_none());
+        assert!(xsi.find_tab_from(|t| t.pane.is_bar()).is_none());
+        assert_eq!(
+            bars_of(PRESETS[1].1),
+            Bars {
+                tools: true,
+                selection: true
+            }
+        );
+        assert_eq!(bars_of(PRESETS[0].1), Bars::default());
+        assert_eq!(xsi.iter_all_tabs().count(), xsi_dock().iter_all_tabs().count());
         assert!(preset("nope").is_none());
         // Choosing one keeps the lock as it is.
         let mut l = layout();
@@ -1158,14 +1332,15 @@ mod tests {
         let tree = &dock[egui_dock::SurfaceIndex::main()];
         let leaf_of = |p: Pane| find_in(tree, p).unwrap().0;
         assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
-        assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len());
+        assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len() - 2);
     }
 
     #[test]
     fn the_default_layout_has_every_pane_once() {
         let d = main_dock();
         assert!(is_valid(&d));
-        assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len());
+        // Every pane but the Tools and the Selection bar (`xms_xsi_layout`).
+        assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len() - 2);
     }
 
     /// Some panes open twice, each a tab of its own number; one of a kind
@@ -1233,7 +1408,7 @@ mod tests {
         let mut ids: Vec<u32> = dock.iter_all_tabs().map(|(_, t)| t.id).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert!(ids.len() == Pane::ALL.len() && ids[0] > 0);
+        assert!(ids.len() == Pane::ALL.len() - 2 && ids[0] > 0);
         assert!(Tab::new(Pane::Viewer).id > *ids.last().unwrap());
         let mut twice = main_dock();
         let first = twice.iter_all_tabs().map(|(_, t)| *t).next().unwrap();
@@ -1302,5 +1477,52 @@ mod tests {
         assert_eq!(states.active_graph, Some(b.id));
         assert_eq!(graph.zoom, 2.5);
         assert!(states.graphs.is_empty() && states.curves.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bar_tests {
+    use super::*;
+
+    /// The bars are not tabs: a layout written with their tabs (before they
+    /// were bars) loads with the bars shown and the tabs gone; one written
+    /// with them as bars keeps them; the Window menu shows and hides them.
+    #[test]
+    fn the_tools_and_selection_are_bars_not_tabs() {
+        let mut dock = main_dock();
+        dock.main_surface_mut().push_to_first_leaf(Tab::new(Pane::Tools));
+        let old = to_json(&dock, false).unwrap();
+        let (read, _) = from_json(&old).unwrap();
+        assert!(read.find_tab_from(|t| t.pane.is_bar()).is_none());
+        assert_eq!(
+            bars_of(&old),
+            Bars {
+                tools: true,
+                selection: false
+            }
+        );
+        let both = Bars {
+            tools: true,
+            selection: true,
+        };
+        assert_eq!(bars_of(&to_json_with(&read, false, both).unwrap()), both);
+        let mut l = Layout {
+            dock: read,
+            bars: Bars::default(),
+            locked: false,
+            saved: String::new(),
+            sized: vec![],
+            tab_drag: None,
+        };
+        assert!(!l.is_open(Pane::Selection));
+        l.show(Pane::Selection);
+        assert!(l.is_open(Pane::Selection) && l.bars.selection);
+        assert!(l.dock.find_tab_from(|t| t.pane.is_bar()).is_none());
+        l.hide(Pane::Selection);
+        assert!(!l.is_open(Pane::Selection));
+        // No tab of them, from a tab bar's + or a tab's Pane menu.
+        assert!(!l.may_add(Pane::Tools));
+        l.add_tab(Pane::Tools, None);
+        assert!(l.dock.find_tab_from(|t| t.pane.is_bar()).is_none());
     }
 }

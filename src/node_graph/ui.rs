@@ -223,6 +223,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         egui::Sense::click_and_drag(),
     );
     let canvas_rect = response.rect;
+    graph.canvas_size = canvas_rect.size();
     let pan = graph.pan_offset;
     let zoom = graph.zoom;
 
@@ -464,6 +465,16 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             )
         });
     graph.drop_on_wire = None;
+    // An operator dragged from the Tools pane: the wire under the pointer
+    // lights, and takes it when it is let go.
+    let tool = egui::DragAndDrop::has_payload_of_type::<crate::tools::DraggedOperator>(ui.ctx());
+    // Where it is, over the canvas: something else being dragged, the
+    // canvas is not "hovered".
+    let tool_at = tool
+        .then(|| ui.ctx().pointer_latest_pos())
+        .flatten()
+        .filter(|p| canvas_rect.contains(*p));
+    let mut tool_wire: Option<ConnectionId> = None;
     for conn in &graph.connections.clone() {
         if let (Some(fn_), Some(tn)) = (
             graph.nodes.iter().find(|n| n.id == conn.from_node),
@@ -482,14 +493,35 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
                     hovered_conn = Some(conn.id);
                 }
             }
+            if let Some(ptr) = tool_at {
+                if tool_wire.is_none() && is_near_bezier(ptr, fp, tp, side, 10.0) {
+                    tool_wire = Some(conn.id);
+                }
+            }
             if let Some((d, r)) = dropping {
                 if graph.drop_on_wire.is_none() && graph.can_insert_on_wire(d, conn.id) && crosses_rect(r, fp, tp, side)
                 {
                     graph.drop_on_wire = Some(conn.id);
                 }
             }
-            let lit = hovered_conn == Some(conn.id) || graph.drop_on_wire == Some(conn.id);
+            let lit =
+                hovered_conn == Some(conn.id) || graph.drop_on_wire == Some(conn.id) || tool_wire == Some(conn.id);
             draw_wire_to(&painter, fp, tp, side, lit, is_sel);
+        }
+    }
+    // Let go of: added where the pointer is, into the wire under it if it
+    // can go there, and selected.
+    if let Some(dropped) = response.dnd_release_payload::<crate::tools::DraggedOperator>() {
+        if let Some(ptr) = tool_at {
+            let t = dropped.0.clone();
+            let at = to_canvas(ptr) - egui::vec2(80.0, 22.0);
+            let id = graph.add_node(default_name(&t), t, at);
+            if let Some(cid) = tool_wire {
+                graph.insert_on_wire(id, cid);
+            }
+            graph.selected_node = Some(id);
+            graph.selected_nodes = vec![id];
+            graph.selected_connection = None;
         }
     }
     if let Some(cid) = hovered_conn {
@@ -1486,6 +1518,20 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     colours_on(r, g, b)
 }
 
+/// The colours of a category of the add menu, as its nodes have them: a body
+/// and the text colours that read on it. `None` for a category with no
+/// colour of its own (its nodes the node grey).
+pub fn category_colours(category: &str) -> Option<(egui::Color32, egui::Color32, egui::Color32)> {
+    if category == "System Commands" {
+        let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+        return Some((rgb(SYSTEM_NODE.0), rgb(SYSTEM_NODE.1), rgb(SYSTEM_NODE.2)));
+    }
+    CATEGORY_COLOURS
+        .iter()
+        .find(|(c, _)| *c == category)
+        .map(|(_, [r, g, b])| colours_on(*r, *g, *b))
+}
+
 /// Whether a node is in the System Commands category of the add menu.
 fn is_system_command(t: &NodeType) -> bool {
     use std::sync::OnceLock;
@@ -1577,6 +1623,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
             (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
             (NodeType::EditPrimitive { kind: Default::default(), edits: Default::default() }, "Edit prims already in the scene as what they are: a camera's lens, a light's values, any prim's transform. Its form shows the prim's values; what you change overrides them"),
+            (NodeType::EditSession { steps: vec![] }, "What you do to prims in the Viewer and the Selection bar, kept as steps: switch one off, rename, reorder; Freeze makes them one, Explode puts them in the graph"),
             (NodeType::Reparent { parent: String::new(), mode: Default::default(), keep_world: true }, "Move prims under another prim, with what is below them: those named, or the whole scene"),
             (NodeType::Rename { find: String::new(), replace: String::new(), prefix: String::new(), suffix: String::new() }, "Rename prims: part of the name replaced, a prefix or suffix added"),
             (NodeType::Duplicate { copies: Default::default() }, "Copies of prims beside them, with what is below them, each moved a step further"),
