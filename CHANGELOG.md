@@ -18,6 +18,18 @@ version's heading when you tag it.
   over to new points when the mesh changes.
 - Template Paint: a meadow scattered in ICE: hills, a painted density and
   biome, and an ICE graph scattering grass, fern and rock by them.
+- The brush's tools as square icon buttons, in Paint's Parameters and as a
+  column at the Viewer's left while a Paint operator is selected.
+
+### Changed
+
+- The Paint category's colour is orchid, apart from Create's green.
+
+### Fixed
+
+- The meadow template's Hills snippet failed (`Expected a type, found
+  @P`): its code was not inside `snippet hills ( ) { }`. The ground is now
+  hilly, with Height and Frequency as parameters.
 
 ## [0.5.1] - 2026-11-27
 

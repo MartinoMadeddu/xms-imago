@@ -650,11 +650,11 @@
     "kind": "prims",
     "prims": 5,
     "copies": 6002,
-    "points": 245586,
-    "triangles": 412820,
+    "points": 253622,
+    "triangles": 427364,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 43
+    "cook_ms": 57
   },
   "Point instancer: a forest": {
     "nodes": 2,

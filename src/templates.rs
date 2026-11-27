@@ -4093,7 +4093,15 @@ fn paint_meadow(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     );
     let hills_id = store.create_snippet(
         "Hills".into(),
-        "// Hills: the grid lifted by noise, broad and fine.\n@P.y = 9 * noise(@P * 0.035) + 1.5 * noise(@P * 0.2 + 3.7) - 5;\n",
+        r#"// Hills: the grid lifted by noise, broad and fine.
+snippet hills (
+    float height = 9    [[ string label = "Height" ]],
+    float scale  = 0.035 [[ string label = "Frequency" ]]
+)
+{
+    @P.y = height * noise(@P * scale) + 1.5 * noise(@P * 0.2 + 3.7) - 5;
+}
+"#,
     );
     let hills = g.add_node(
         "Hills".into(),
@@ -4123,7 +4131,7 @@ fn paint_meadow(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             let valley = |x: f32, z: f32| (-(x + 6.0 + 7.0 * (z * 0.09).sin()).powi(2) / 60.0).exp();
             let density: Vec<f32> = pts
                 .iter()
-                .map(|q| ((valley(q[0], q[2]) * 1.25 - 0.05 - (q[1] - 1.0).max(0.0) * 0.15).clamp(0.0, 1.0)))
+                .map(|q| (valley(q[0], q[2]) * 1.25 - 0.05 - (q[1] - 1.0).max(0.0) * 0.15).clamp(0.0, 1.0))
                 .collect();
             let biome: Vec<f32> = pts
                 .iter()
@@ -4357,6 +4365,9 @@ mod tests {
         let crate::types::EvalResult::Named(prims) = scene else { panic!() };
         let ground = prims.iter().find(|p| p.path == "/terrain/ground").unwrap();
         let geo = ground.geo.as_ref().unwrap();
+        let ys = geo.points().iter().map(|q| q[1]);
+        let (lo, hi) = ys.fold((f32::MAX, f32::MIN), |(a, b), y| (a.min(y), b.max(y)));
+        assert!(hi - lo > 2.0, "the hills are flat: {lo} to {hi}");
         let density = geo.attr(Context::Point, "density").unwrap().column.floats().unwrap().to_vec();
         assert!(density.iter().any(|d| *d > 0.9) && density.iter().any(|d| *d < 0.01), "{:?}", density.iter().fold((f32::MAX, f32::MIN), |(a, b), d| (a.min(*d), b.max(*d))));
         let inst = prims.iter().find(|p| p.instancing.is_some()).expect("an instancer");

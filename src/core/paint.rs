@@ -312,8 +312,6 @@ pub enum Op {
 }
 
 impl Op {
-    pub const ALL: [Op; 5] = [Op::Add, Op::Subtract, Op::Set, Op::Smooth, Op::Erase];
-
     pub fn label(self) -> &'static str {
         match self {
             Op::Add => "Add",

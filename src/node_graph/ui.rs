@@ -1459,7 +1459,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 12] = [
     ("Render", [0x96, 0xBA, 0xC0]),     // light cyan    (#BBE8F0)
     ("Lights", [0xC0, 0xB8, 0x78]),     // pale yellow   (#F0E696)
     ("Image", [0xC0, 0xA8, 0x8A]),      // apricot       (#F0D2AC)
-    ("Paint", [0xA8, 0xB8, 0xA0]),      // sage          (#D2E6C8)
+    ("Paint", [0xC0, 0x82, 0xC0]),      // orchid        (#F0A2F0)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of Softimage's

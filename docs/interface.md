@@ -383,7 +383,10 @@ active channel on the prims it paints: a float as a heat map (grey for 0,
 through red and orange, to pale yellow for 1), an ID in its palette
 colours. The left button paints with the brush set in its Parameters (Add,
 Subtract, Set, Smooth, Erase; Radius, Strength, Value or ID, Mirror X,
-Slope Limit); `[` and `]` size it, and a ring shows it on the surface.
+Slope Limit); `[` and `]` size it, and a ring shows it on the surface. The
+brush's tools are also a column of square buttons at the Viewer's left,
+under the A: the ops, Flood and Mirror X, the same brush as the
+Parameters' buttons.
 Flood fills the selected prims, or the one under the cursor. Only the
 colours change during a stroke; what reads the paint cooks when it ends,
 and Undo takes the stroke back. The values are saved beside the graph in

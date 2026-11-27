@@ -23,6 +23,99 @@ pub fn id_colour(id: i32) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
+/// The brush's tools, in the order of their square buttons: each op, and
+/// Flood (an action, not an op).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Tool {
+    Op(Op),
+    Flood,
+}
+
+pub const TOOLS: [Tool; 6] = [
+    Tool::Op(Op::Add),
+    Tool::Op(Op::Subtract),
+    Tool::Op(Op::Set),
+    Tool::Op(Op::Smooth),
+    Tool::Flood,
+    Tool::Op(Op::Erase),
+];
+
+impl Tool {
+    pub fn icon(self) -> &'static str {
+        use crate::icons as i;
+        match self {
+            Tool::Op(Op::Add) => i::PLUS,
+            Tool::Op(Op::Subtract) => i::MINUS,
+            Tool::Op(Op::Set) => i::EQUALS,
+            Tool::Op(Op::Smooth) => i::WAVE_SINE,
+            Tool::Op(Op::Erase) => i::ERASER,
+            Tool::Flood => i::PAINT_BUCKET,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tool::Op(op) => op.label(),
+            Tool::Flood => "Flood",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Tool::Op(Op::Add) => "Add: raise the values under the brush towards 1",
+            Tool::Op(Op::Subtract) => "Subtract: lower the values under the brush towards 0",
+            Tool::Op(Op::Set) => "Set: the values under the brush towards the Value (an ID: to its ID)",
+            Tool::Op(Op::Smooth) => "Smooth: the values towards the average around them (floats only)",
+            Tool::Op(Op::Erase) => "Erase: back to the channel's default",
+            Tool::Flood => "Flood: every point of the selected prims (or the one under the cursor) set to the Value, within the slope limit",
+        }
+    }
+
+    /// Smooth has no meaning on IDs.
+    pub fn enabled(self, kind: Option<ChannelKind>) -> bool {
+        !(self == Tool::Op(Op::Smooth) && kind == Some(ChannelKind::Id))
+    }
+}
+
+/// A square button: an icon, and its label under it when `label` is
+/// given. Used for the brush in the Parameters and in the Viewer.
+pub fn square(ui: &mut egui::Ui, icon: &str, label: Option<&str>, selected: bool, enabled: bool, size: egui::Vec2) -> egui::Response {
+    let r = ui.add_enabled(enabled, egui::Button::new("").selected(selected).min_size(size));
+    let visuals = ui.style().interact_selectable(&r, selected);
+    let mut ink = visuals.text_color();
+    if !enabled {
+        ink = ink.gamma_multiply(0.4);
+    }
+    let p = ui.painter();
+    let rect = r.rect;
+    match label {
+        Some(text) => {
+            p.text(rect.center() - egui::vec2(0.0, 7.0), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(16.0), ink);
+            p.text(rect.center_bottom() - egui::vec2(0.0, 4.0), egui::Align2::CENTER_BOTTOM, text, egui::FontId::proportional(10.5), ink);
+        }
+        None => {
+            p.text(rect.center(), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(16.0), ink);
+        }
+    }
+    r
+}
+
+/// The brush's tools as square buttons, `label`led or not, laid out by the
+/// caller's `ui`: picks the op, or asks for a Flood.
+pub fn tool_buttons(ui: &mut egui::Ui, b: &mut paint::Brush, kind: Option<ChannelKind>, labels: bool, size: egui::Vec2) {
+    for tool in TOOLS {
+        let on = tool == Tool::Op(b.op);
+        let r = square(ui, tool.icon(), labels.then(|| tool.label()), on, tool.enabled(kind), size);
+        let r = r.on_hover_text(tool.hint());
+        if r.clicked() {
+            match tool {
+                Tool::Op(op) => b.op = op,
+                Tool::Flood => paint::request_flood(),
+            }
+        }
+    }
+}
+
 /// A swatch of an ID's colour.
 fn swatch(ui: &mut egui::Ui, id: i32) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(11.0, 11.0), egui::Sense::hover());
@@ -143,14 +236,9 @@ pub fn rows(ui: &mut egui::Ui, channels: &mut Vec<Channel>, active: &mut usize, 
         "Brush",
         Some("Paint in the Viewer with the left button over a prim, with this operator selected. The brush is the Viewer's, not saved with the graph"),
         |f| {
-            f.buttons("Op", None, |ui| {
-                for op in Op::ALL {
-                    let float_only = op == Op::Smooth;
-                    let ok = !(float_only && channel.as_ref().is_some_and(|c| c.kind == ChannelKind::Id));
-                    if ui.add_enabled(ok, egui::Button::selectable(b.op == op, op.label())).clicked() {
-                        b.op = op;
-                    }
-                }
+            f.buttons("", None, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                tool_buttons(ui, &mut b, channel.as_ref().map(|c| c.kind), true, egui::vec2(48.0, 40.0));
             });
             f.drag("Radius", Some("In the scene's units. [ and ] in the Viewer change it"), &mut b.radius, 0.01, "");
             b.radius = b.radius.max(0.001);
@@ -187,15 +275,6 @@ pub fn rows(ui: &mut egui::Ui, channels: &mut Vec<Channel>, active: &mut usize, 
                 0.0..=90.0,
                 "°",
             );
-            f.buttons("", None, |ui| {
-                if ui
-                    .button(format!("{} Flood", crate::icons::PAINT_BUCKET))
-                    .on_hover_text("Every point of the selected prims set to the Value (an ID: its ID), within the slope limit")
-                    .clicked()
-                {
-                    paint::request_flood();
-                }
-            });
         },
     );
     if b != before {

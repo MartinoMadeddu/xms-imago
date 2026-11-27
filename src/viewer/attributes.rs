@@ -743,10 +743,11 @@ fn visible(anchors: &[egui::Pos2], hidden: impl Fn(usize) -> bool) -> (Vec<usize
 /// lit while attributes are shown, that opens into a box holding the
 /// Attributes settings (`menu`), as a Snippet's code opens under it; the A
 /// closes it again. Open or closed is kept while Imago runs.
-pub fn button(ctx: &egui::Context, rect: egui::Rect, slot: u64, names: impl FnOnce() -> Vec<String>) {
+/// Returns the box's bottom, for what goes under it.
+pub fn button(ctx: &egui::Context, rect: egui::Rect, slot: u64, names: impl FnOnce() -> Vec<String>) -> f32 {
     let open_id = egui::Id::new(("viewer_attributes_open", slot));
     let mut open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-    egui::Area::new(egui::Id::new(("viewer_attributes", slot)))
+    let shown = egui::Area::new(egui::Id::new(("viewer_attributes", slot)))
         .order(egui::Order::Background)
         .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.min.y + 42.0))
         .constrain_to(rect)
@@ -781,6 +782,7 @@ pub fn button(ctx: &egui::Context, rect: egui::Rect, slot: u64, names: impl FnOn
                 });
         });
     ctx.data_mut(|d| d.insert_temp(open_id, open));
+    shown.response.rect.max.y
 }
 
 /// The Attributes settings, in the box the Viewer's A opens: on or off, the

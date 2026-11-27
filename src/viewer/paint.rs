@@ -348,3 +348,40 @@ pub struct State {
     pub targets: Targets,
     pub stroke: Option<Stroke>,
 }
+
+/// The brush's tools as a column of square buttons at the Viewer's left,
+/// under `top`, while a Paint operator is selected: the same as its
+/// Parameters, and Mirror X.
+pub fn toolbar(ctx: &egui::Context, rect: egui::Rect, slot: u64, top: f32, graph: &crate::node_graph::NodeGraphState) {
+    let Some((_, channels, active)) = selected_paint(graph) else { return };
+    let kind = channels.get(active).map(|c| c.kind);
+    let mut b = paint::brush();
+    let before = b;
+    egui::Area::new(egui::Id::new(("viewer_paint_tools", slot)))
+        .order(egui::Order::Background)
+        .fixed_pos(egui::pos2(rect.min.x + 10.0, top + 6.0))
+        .constrain_to(rect)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
+                .stroke(egui::Stroke::new(1.0_f32, crate::theme::c(70, 70, 70)))
+                .corner_radius(4.0)
+                .inner_margin(3.0)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    ui.vertical(|ui| {
+                        let size = egui::vec2(22.0, 22.0);
+                        crate::properties::paint::tool_buttons(ui, &mut b, kind, false, size);
+                        ui.separator();
+                        let m = crate::properties::paint::square(ui, crate::icons::FLIP_HORIZONTAL, None, b.mirror, true, size)
+                            .on_hover_text("Mirror X: also on the other side of the prim's own X = 0");
+                        if m.clicked() {
+                            b.mirror = !b.mirror;
+                        }
+                    });
+                });
+        });
+    if b != before {
+        paint::set_brush(b);
+    }
+}

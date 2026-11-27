@@ -407,7 +407,7 @@ impl Viewer {
         let bar = self.snaps_bar(ui.ctx(), rect);
         // Attributes, at the top left under the Viewer's bar: the names of
         // the attributes of the prims shown, made only while its menu is open.
-        attributes::button(ui.ctx(), rect, self.slot, || {
+        let under_attributes = attributes::button(ui.ctx(), rect, self.slot, || {
             let subnets = input.subnets;
             let eval =
                 |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
@@ -432,6 +432,8 @@ impl Viewer {
             names.dedup();
             names
         });
+        // The brush's tools under it, while a Paint operator is selected.
+        paint::toolbar(ui.ctx(), rect, self.slot, under_attributes, input.graph);
         // How the render goes (or why it stopped), else what the triangle
         // budget drew as boxes, at the bottom left, over the snapshots bar.
         let note = self

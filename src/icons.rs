@@ -223,6 +223,7 @@ pub const DICE_FIVE: &str = "\u{e1ee}";
 pub const DOTS_NINE: &str = "\u{e1fc}";
 pub const DROP: &str = "\u{e210}";
 pub const DROP_HALF: &str = "\u{e566}";
+pub const EQUALS: &str = "\u{e21c}";
 pub const ERASER: &str = "\u{e21e}";
 pub const EXPORT: &str = "\u{eaf0}";
 pub const EYE: &str = "\u{e220}";
@@ -272,6 +273,7 @@ pub const MAP_TRIFOLD: &str = "\u{e31a}";
 pub const MATH_OPERATIONS: &str = "\u{e31e}";
 pub const NUT: &str = "\u{e38c}";
 pub const PACKAGE: &str = "\u{e390}";
+pub const MINUS: &str = "\u{e32a}";
 pub const PAINT_BRUSH: &str = "\u{e6f0}";
 pub const PAINT_BUCKET: &str = "\u{e392}";
 pub const PALETTE: &str = "\u{e6c8}";
@@ -386,7 +388,7 @@ mod tests {
 
 /// Every icon named here, for the test.
 #[cfg(test)]
-const ALL: [&str; 153] = [
+const ALL: [&str; 155] = [
     ARROWS_CLOCKWISE,
     ARROWS_HORIZONTAL,
     ARROWS_IN_LINE_HORIZONTAL,
@@ -439,7 +441,9 @@ const ALL: [&str; 153] = [
     DOTS_NINE,
     DROP,
     DROP_HALF,
+    EQUALS,
     ERASER,
+    MINUS,
     EXPORT,
     EYE,
     FADERS,
