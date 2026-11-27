@@ -51,6 +51,12 @@ it is opened, or until Show all geometry is ticked.
 | Snippets: bind rigid hair deform by skin | Bind rigid hair deform by skin in three ISnippets: RootBind (per curve, kept) stores the place nearest the hair's root and the frame's inverse; Carry (per curve) the frame on the animated head by that inverse, `carry`; Deform (per point) puts the point through `get_data(@carry, "face")` |
 | ICE: instancing | A 40 m grid as the scene, a cube and a sphere (lifted to stand on the ground) on Reference 1 and the DeLorean (Load USD as a reference, at `/protos/delorean`) on Reference 2. Inside the Instancing node, per Object: Scatter on Surface puts 240 places on the grid; Random Orientation turns each up along the normals and at random about them; Random Value, its Count the positions, scales each from 0.6 to 1.4; two Get References joined by Concatenate Arrays are the prototypes, one picked at random for each; the Instancer makes `/root/instancer`. The cars are past the Viewer's triangle budget, so they are drawn as boxes |
 
+## Martino: Paint
+
+| Template | Shows |
+|---|---|
+| Paint: a meadow scattered in ICE | A 60 m Grid (160 by 160) made into hills by an ISnippet (`@P.y` from two noises), then a Paint operator, already painted: **density** along a winding valley and **biome** (1 grass, 2 fern, 3 rock). The Meadow ICE graph, per Object: Scatter on Surface puts 6,000 places weighted by density; Get Data reads the biome at each place's Polygon and Param UV, less 1, into the Instancer's Proto Indices; Get Reference reads the Library's grass, fern and rock; Random Orientation and Random Value turn and scale them; the Instancer makes `/scatter/meadow`. Select Paint and paint with the left button, `[` and `]` size the brush; the meadow follows when the stroke ends |
+
 ## XMS: Lighting & Rendering
 
 | Template | Shows |

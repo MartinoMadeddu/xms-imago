@@ -539,8 +539,24 @@ fn upgrade(saved: &mut SavedGraph) {
 /// The graph file: the graph, and the attributes the Viewer's Attributes menu
 /// lists (`display_attributes`, not whether they are shown).
 pub fn save(graph: &NodeGraphState, subnets: &IceGraphStore, path: &Path) -> Result<(), String> {
+    // What Paint operators painted, beside it first: the graph names them.
+    let dir = path.parent().unwrap_or(Path::new("."));
+    for n in &graph.nodes {
+        if let crate::types::NodeType::Paint { data, .. } = &n.node_type {
+            crate::core::paint::write_file(data, dir).map_err(|e| format!("{}'s paint: {e}", n.name))?;
+        }
+    }
     let json = json_listing(graph, subnets, crate::viewer::attributes::settings().list);
     std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+/// What Paint operators painted, read from beside the graph file in `dir`.
+pub fn read_paint(graph: &mut NodeGraphState, dir: &Path) {
+    for n in &mut graph.nodes {
+        if let crate::types::NodeType::Paint { data, .. } = &mut n.node_type {
+            crate::core::paint::read_file(data, dir);
+        }
+    }
 }
 
 /// A graph file read into `graph`, and the attributes it lists put in the
@@ -548,6 +564,7 @@ pub fn save(graph: &NodeGraphState, subnets: &IceGraphStore, path: &Path) -> Res
 pub fn load(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path: &Path) -> Result<(), String> {
     let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     from_json(graph, subnets, &json)?;
+    read_paint(graph, path.parent().unwrap_or(Path::new(".")));
     let listed = serde_json::from_str::<serde_json::Value>(&json)
         .ok()
         .and_then(|v| v.get("display_attributes").cloned())

@@ -1270,6 +1270,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             uv,
             bitangents,
         } => super::frames::tangents_rows(ui, context, from, uv, bitangents),
+        NodeType::Paint { channels, active, data } => super::paint::rows(ui, channels, active, data),
         NodeType::LightLinker { links } => super::light_link::rows(
             ui,
             links,

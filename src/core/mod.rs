@@ -31,6 +31,7 @@ pub mod locations;
 pub mod manip;
 /// Materials: a UsdPreviewSurface, as the Material operator makes it.
 pub mod material;
+pub mod paint;
 pub mod pattern;
 pub mod poly;
 pub mod poly_ops;

@@ -5,6 +5,7 @@ pub mod form;
 pub mod frames;
 pub mod light;
 pub mod light_link;
+pub mod paint;
 pub mod render;
 pub mod rename;
 pub mod reparent;

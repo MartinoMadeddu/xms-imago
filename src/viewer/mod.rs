@@ -17,6 +17,7 @@ pub mod info;
 pub(crate) mod gpu;
 pub mod movie;
 pub mod menu;
+pub mod paint;
 mod occlusion;
 mod pick;
 pub(crate) mod scene;
@@ -127,6 +128,8 @@ pub struct Viewer {
     isolate: Vec<String>,
     /// Frame asked for by the menu: the selection (true) or everything.
     frame_request: Option<bool>,
+    /// Painting with a Paint operator selected.
+    paint: paint::State,
     /// Where the left button went down over the Viewer, for a click that picks
     /// a primitive (a drag is not a click).
     press: Option<egui::Pos2>,
@@ -250,6 +253,8 @@ impl Viewer {
         }
 
         // The scene again only when what it is made from changed.
+        // The selected Paint operator's channel, coloured.
+        let painting = paint::show(input.graph, self.paint.stroke.as_ref());
         let key = (
             input.revision,
             input.playback.time.to_bits(),
@@ -264,7 +269,8 @@ impl Viewer {
             // The camera looked through is not drawn.
             crate::viewport::display::key()
                 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8)
-                ^ hash_of(&self.isolate.join("\n")).rotate_left(24),
+                ^ hash_of(&self.isolate.join("\n")).rotate_left(24)
+                ^ painting.as_ref().map(|p| p.key).unwrap_or(0).rotate_left(4),
         );
         if self.built != Some(key) {
             self.built = Some(key);
@@ -275,6 +281,7 @@ impl Viewer {
                 hierarchy: input.hierarchy,
                 time: input.playback.time,
                 isolate: &self.isolate,
+                paint: painting.as_ref(),
             };
             self.scene = Arc::new(scene::build(&inputs, &mut self.cache, self.generation));
         }
@@ -314,6 +321,9 @@ impl Viewer {
                         .unwrap_or(true)
             });
             let free = over && !input.nav.style.claims_left_button(held);
+            // A Paint operator selected: the left button is the brush's.
+            let brushing = self.paint(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
+            let free = free && !brushing;
             // The middle button is the camera's in some styles (Blender's),
             // and with the navigation keys in all.
             let middle_free = over

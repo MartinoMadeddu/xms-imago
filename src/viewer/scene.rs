@@ -503,6 +503,8 @@ pub struct Inputs<'a> {
     pub time: f64,
     /// Isolate: only these, and what is below them, drawn. Empty: all.
     pub isolate: &'a [String],
+    /// A Paint operator's channel, coloured on the prims it painted.
+    pub paint: Option<&'a super::paint::PaintShow>,
 }
 
 pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scene {
@@ -811,7 +813,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // colour a mesh draw it in their colours, in place of its own
             // (not in Wireframe, which draws no surface).
             let surfaces = mode != DisplayMode::Wireframe;
-            let coloured = shown_attributes(&mut s, &prims, &modes, input.hierarchy.selected_set(), surfaces);
+            let mut coloured = shown_attributes(&mut s, &prims, &modes, input.hierarchy.selected_set(), surfaces);
+            if let Some(show) = input.paint.filter(|_| surfaces) {
+                coloured.extend(painted(&mut s, &prims, &modes, show));
+            }
             let standin_ink = {
                 let c = ink(crate::theme::c(215, 215, 215));
                 [c[0], c[1], c[2], 1.0]
@@ -1221,6 +1226,48 @@ fn shown_attributes(
         s.notice = Some(text);
     }
     coloured
+}
+
+/// The selected Paint operator's channel on the prims it painted, drawn in
+/// place of their own surfaces: a float through its ramp, an ID in its
+/// palette. Those whose points are not the ones painted are left as they are.
+fn painted(
+    s: &mut Scene,
+    prims: &[Prim],
+    modes: &[crate::types::DrawMode],
+    show: &super::paint::PaintShow,
+) -> std::collections::HashSet<String> {
+    let mut done = std::collections::HashSet::new();
+    for (p, mode) in prims.iter().zip(modes) {
+        if *mode != crate::types::DrawMode::Default {
+            continue;
+        }
+        let Some(values) = show.prims.get(&p.path) else { continue };
+        let geo = crate::core::paint::geo_of(p);
+        let crate::core::geo::Topology::Mesh { indices, .. } = &geo.topology else { continue };
+        if values.len() != geo.point_count() {
+            continue;
+        }
+        let corners: Vec<[f32; 4]> = indices
+            .iter()
+            .map(|&i| super::paint::colour(values[i as usize], show.kind))
+            .collect();
+        let identity = [Mat4::IDENTITY];
+        let places: &[Mat4] = if p.place.is_placed() { p.place.matrices() } else { &identity };
+        let mut instances = vec![];
+        for m in places {
+            push_instance(&mut instances, m, [1.0; 4], true);
+        }
+        s.meshes.push(MeshDraw {
+            geometry: Arc::new(Geometry::coloured(&geo, &corners)),
+            instances,
+            blend: false,
+            edges: false,
+            material: None,
+        });
+        done.insert(p.path.clone());
+    }
+    done
 }
 
 /// Ghosted operators: what each puts out drawn as a grey wireframe beside the

@@ -94,20 +94,19 @@ strokes, undo, what it shows) is written once, so all of them are as fast.
 
 ## Its file
 
-One file per Paint operator, its layer:
+One file per Paint operator, holding all its channels:
 
-- **`.mcol`:** a header (format version, channel type and count, a hash of
-  the topology), the resolutions per face, the values, the strengths, and
-  the samples' positions at rest (for resampling), compressed with
-  `lz4_flex` (already one of Imago's dependencies; read on every load, so
-  fast over small). Points on curves or point clouds are the same file with
-  resolution 0 and no faces.
+- **`.mcol`:** `XMSMCOL1`, then deflate (`flate2`, fast level): per prim,
+  the topology hash, the points at rest (for carrying values over) and each
+  channel's values. Point mode only for now; Mesh Colors will add the
+  resolutions per face. `flate2` rather than `lz4_flex`, which is only
+  pulled in by another crate, not one of Imago's own dependencies.
 - **Named by its content:** a hash in the name, so the same paint is the
   same file, two machines never clash, and a file a farm render may be
   reading is never written over. The operator keeps the path it was given
-  when it was made (`$GDIR/paint/<operator>.<attr>.<hash>.mcol`), so
-  renaming the operator does not lose its file. Files no saved graph names
-  are cleaned up.
+  when it was made (`paint/<stem>.<hash>.mcol` beside the graph), so
+  renaming the operator does not lose its file. Cleaning up files no saved
+  graph names: not yet done.
 - **Written** to a temporary file then renamed (never half written), when
   the graph is saved, not with every stroke: strokes go into memory.
 - **The topology hash** is of the faces' counts and indices, not the
@@ -144,43 +143,43 @@ values never changed to fit 0 to 1.
 
 ## The environment workflow
 
-A ground dressed with a meadow reads: terrain (Load USD), Surface Masks,
-Paint, Scatter (the prototypes from a library on its second input), Scatter
-Session, Merge with the terrain, its material.
+No Scatter operator, by choice: scattering and instancing are an ICE
+graph, as in the ICE instancing templates. A ground dressed with a meadow
+reads: terrain, Paint, an ICE graph (the prototypes from a library on its
+second input), its material. The template **Paint: a meadow scattered in
+ICE** (File > Templates > Martino > Paint) is this:
 
-- **Surface Masks:** the procedural base, as ICE compounds: slope, height,
-  curvature, cavity, noise, distance to a curve. Attributes on the ground a
-  Paint channel can be laid over.
-- **Paint:** its channels on the ground. **density** (Float) over the slope
-  mask, multiplied; **biome** (ID: 1 grass, 2 fern, 3 rock, shown as a
-  palette); others as wanted (wetness, a variant). The Viewer shows one
-  channel at a time: a float as a heat map, an ID in its palette colours.
-  Masking by the slope (the normal's angle) and by another channel.
-- **Scatter:** one operator holding an ICE graph of compounds, shown as a
-  list in its Parameters, as Groom Modify is: Scatter on Surface by density,
-  the prototype by the biome ID, random scale, rotation and align to the
-  normal, keep apart, cull by camera. Its output a PointInstancer. Each
-  instance's ID comes from its place on the ground (the same hard rule as
-  the groom's curves), so a repainted density keeps the instances that stay
-  where they were.
-- **Scatter Session:** placing by hand, as the Groom Session is for curves:
-  brushes to place, move, rotate, scale, swap and delete instances, in
-  layers by instance ID, with Explode and Freeze. Edits stay on the
-  instances that remain when the scatter upstream changes.
+- **Terrain:** a Grid made into hills by an ISL Snippet (noise).
+- **Paint:** **density** (Float) along a winding valley; **biome** (ID: 1
+  grass, 2 fern, 3 rock). The Viewer shows the active channel: a float as
+  a heat map, an ID in its palette colours.
+- **Meadow (ICE):** Scatter on Surface weighted by `density`; Get Data
+  `biome` at each point's polygon and UV, less 1, into the Instancer's
+  Proto Indices; Get Reference for the three prototypes; random
+  orientation and scale; Instancer to `/scatter/meadow`. The meadow cooks
+  again when a stroke ends.
+- **Surface Masks** (later): slope, height, curvature, cavity, noise,
+  distance to a curve, as ICE compounds; attributes a Paint channel can be
+  laid over.
+- **Placing by hand** (later, open): brushes to place, move, rotate, scale
+  and delete instances, keeping its edits when the ICE graph upstream
+  changes. Whether that is a session operator or something in ICE is still
+  to decide. It needs stable instance IDs (from each instance's place on
+  the ground, the same hard rule as the groom's curves).
 
 ## Order to do it in
 
-1. **The shared brush and Paint in point mode:** a float and an ID channel;
-   add, subtract, set, smooth, flood and erase, falloff and symmetry,
-   masking by slope; the colours in the Viewer (a heat map, an ID palette);
-   the `.mcol` file named by its content and written atomically; written to
-   USD as primvars.
-2. **Scatter reading it:** density and the biome ID into Scatter on Surface
-   and the Instancer (both built), as the list-of-compounds operator; stable
-   instance IDs.
+1. **Done: the shared brush and Paint in point mode.** A float and an ID
+   channel; add, subtract, set, smooth, flood and erase; falloff, mirror in
+   X, masking by slope; the heat map and ID palette in the Viewer; the
+   `.mcol` named by its content, written atomically when the graph is
+   saved; the channels as point attributes (primvars in USD). Not yet:
+   masking by another channel.
+2. **ICE reading it:** shown by the meadow template. Left: stable instance
+   IDs, and compounds that make the meadow graph shorter to build.
 3. **Layering** over an upstream attribute, with the blend modes, and the
    Surface Masks compounds.
-4. **Scatter Session:** placing, moving and deleting instances by brush.
+4. **Placing by hand:** placing, moving and deleting instances by brush.
 5. **Mesh Colors:** the data, reading at places in ICE, the brush on them,
    the split faces in the Viewer.
 6. **The other channels** (colour, direction), **Mesh Color Textures** if

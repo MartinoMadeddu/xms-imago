@@ -1446,7 +1446,7 @@ fn draw_node(
 }
 
 /// The palette node bodies take, by add-menu category.
-const CATEGORY_COLOURS: [(&str, [u8; 3]); 11] = [
+const CATEGORY_COLOURS: [(&str, [u8; 3]); 12] = [
     // The pastel palette at 80%, one colour per category.
     ("Create", [0xAE, 0xC0, 0x96]),     // light green   (#DAF0BB)
     ("Modify", [0x96, 0xA2, 0xC0]),     // light blue    (#BCCAF0)
@@ -1459,6 +1459,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 11] = [
     ("Render", [0x96, 0xBA, 0xC0]),     // light cyan    (#BBE8F0)
     ("Lights", [0xC0, 0xB8, 0x78]),     // pale yellow   (#F0E696)
     ("Image", [0xC0, 0xA8, 0x8A]),      // apricot       (#F0D2AC)
+    ("Paint", [0xA8, 0xB8, 0xA0]),      // sage          (#D2E6C8)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of Softimage's
@@ -1662,6 +1663,9 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Cylinder)), "A cylinder along its X: a tube"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
             (NodeType::LightLinker { links: vec![crate::core::light_link::Link::new("", "")] }, "Which prims each light lights and shadows: a table of links, each its lights and prims (paths, patterns or %collections) with Light and Shadow on or off. Prims dropped on it get a link each"),
+        ]),
+        (crate::icons::PAINT_BRUSH, "Paint", vec![
+            (NodeType::paint(), "Values painted on the prims' points in the Viewer, a point attribute per channel: a float (density, weights) or an ID (biomes, variants). Read by ICE, written to USD as primvars"),
         ]),
         (crate::icons::FILM_SLATE, "Render", vec![
             (NodeType::RenderCommons { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),

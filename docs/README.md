@@ -31,9 +31,10 @@
   definitions](renderer-definitions.md): the plans behind rendering in Imago,
   their steps and findings; [native edits](native-edits.md), a plan not yet
   agreed: what Imago computes sent to the renderer natively
-- [Paint](paint.md): planned work, not built yet: painting attributes on
-  geometry (per point, or as Mesh Colors per face), read by scatters, groom,
-  crowds and deformers, and the environment workflow built on it
+- [Paint](paint.md): painting attributes on geometry, read in ICE for
+  scatters, groom, crowds and deformers. Built: the Paint operator in point
+  mode, its brush and its file. Planned: Mesh Colors per face, layering,
+  placing instances by hand
 - [Groom](groom.md): planned work, not built yet: curves planted, brushed,
   grown and modified, procedural and interactive (Groom Session, Hair
   Generate, Groom Modify)

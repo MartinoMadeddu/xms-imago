@@ -272,6 +272,7 @@ pub const MAP_TRIFOLD: &str = "\u{e31a}";
 pub const MATH_OPERATIONS: &str = "\u{e31e}";
 pub const NUT: &str = "\u{e38c}";
 pub const PACKAGE: &str = "\u{e390}";
+pub const PAINT_BRUSH: &str = "\u{e6f0}";
 pub const PAINT_BUCKET: &str = "\u{e392}";
 pub const PALETTE: &str = "\u{e6c8}";
 pub const PATH: &str = "\u{e39c}";
@@ -385,7 +386,7 @@ mod tests {
 
 /// Every icon named here, for the test.
 #[cfg(test)]
-const ALL: [&str; 152] = [
+const ALL: [&str; 153] = [
     ARROWS_CLOCKWISE,
     ARROWS_HORIZONTAL,
     ARROWS_IN_LINE_HORIZONTAL,
@@ -486,6 +487,7 @@ const ALL: [&str; 152] = [
     MATH_OPERATIONS,
     NUT,
     PACKAGE,
+    PAINT_BRUSH,
     PAINT_BUCKET,
     PALETTE,
     PATH,

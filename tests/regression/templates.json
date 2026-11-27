@@ -643,6 +643,19 @@
     "cameras": 0,
     "cook_ms": 12
   },
+  "Paint: a meadow scattered in ICE": {
+    "nodes": 8,
+    "viewed": "Meadow",
+    "output": 0,
+    "kind": "prims",
+    "prims": 5,
+    "copies": 6002,
+    "points": 245586,
+    "triangles": 412820,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 43
+  },
   "Point instancer: a forest": {
     "nodes": 2,
     "viewed": "Turn",

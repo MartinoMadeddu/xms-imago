@@ -211,6 +211,7 @@ pub fn evaluate_node_type(
             )
         }),
         NodeType::LightLinker { links } => inputs.first().map(|r| crate::core::light_link::link_lights(r, links)),
+        NodeType::Paint { channels, data, .. } => inputs.first().map(|r| crate::core::paint::apply(r, channels, data)),
         NodeType::DeleteAttribute { names, context } => inputs
             .first()
             .map(|r| crate::core::attribute_edit::delete(r, names, *context)),

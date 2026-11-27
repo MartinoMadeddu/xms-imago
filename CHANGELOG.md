@@ -8,6 +8,17 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Added
+
+- Paint: a new operator painting attributes on the points of the prims it
+  is given, a float channel (a heat map in the Viewer) or an ID channel (a
+  palette). Its brush adds, subtracts, sets, smooths, floods and erases,
+  with falloff, mirror in X and a slope limit. Its values are saved beside
+  the graph in a compressed `.mcol` file named by its content, and carried
+  over to new points when the mesh changes.
+- Template Paint: a meadow scattered in ICE: hills, a painted density and
+  biome, and an ICE graph scattering grass, fern and rock by them.
+
 ## [0.5.1] - 2026-11-27
 
 ### Documentation

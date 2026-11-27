@@ -16,7 +16,7 @@ pub struct DraggedOperator(pub NodeType);
 
 /// The add menu's categories in the order the pane lists them: from getting
 /// a scene to rendering it, then what organises a graph.
-const ORDER: [&str; 15] = [
+const ORDER: [&str; 16] = [
     "File",
     "Create",
     "Primitives",
@@ -24,6 +24,7 @@ const ORDER: [&str; 15] = [
     "Modify",
     "UV",
     "Materials",
+    "Paint",
     "Animation",
     "Mocap",
     "Rigging",

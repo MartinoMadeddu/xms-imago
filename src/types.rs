@@ -355,6 +355,16 @@ pub enum NodeType {
         #[serde(default)]
         bitangents: bool,
     },
+    /// Values painted on prims' points in the Viewer, put on its output as
+    /// point attributes, one per channel (`core::paint`). The values are kept
+    /// in their own file beside the graph.
+    Paint {
+        channels: Vec<crate::core::paint::Channel>,
+        /// The channel the brush paints and the Viewer shows.
+        #[serde(default)]
+        active: usize,
+        data: crate::core::paint::PaintData,
+    },
     /// Light linking as a table: a row per link, its lights and prims (paths,
     /// patterns, `%collection`) with Light and Shadow on, off or as they come
     /// in. Written as the lights' `lightLink` and `shadowLink` collections.
@@ -1060,6 +1070,23 @@ impl NodeType {
             xform: Default::default(),
         }
     }
+    /// A Paint operator: a float channel `density` and an ID channel `biome`
+    /// (grass, fern, rock), its file named by a fresh stem.
+    pub fn paint() -> NodeType {
+        use crate::core::paint::{Channel, PaintData};
+        // Unique enough: the time it was made, in nanoseconds.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let stem = format!("paint_{:08x}", (now ^ (now >> 32)) as u32);
+        NodeType::Paint {
+            channels: vec![Channel::float("density"), Channel::id("biome", &["grass", "fern", "rock"])],
+            active: 0,
+            data: PaintData::new(&stem),
+        }
+    }
+
     /// Whether it makes a prim and holds that prim's own transform as
     /// parameters: what the Selection bar writes into.
     pub fn holds_xform(&self) -> bool {
@@ -1290,6 +1317,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Tangents { .. } => crate::icons::ARROWS_HORIZONTAL,
         NodeType::Collection { .. } => crate::icons::SELECTION_ALL,
         NodeType::LightLinker { .. } => crate::icons::FLASHLIGHT,
+        NodeType::Paint { .. } => crate::icons::PAINT_BRUSH,
         NodeType::Variant { .. } => crate::icons::GIT_FORK,
         NodeType::Material { .. } => crate::icons::PALETTE,
         NodeType::MaterialX { .. } => crate::icons::SWATCHES,
@@ -1396,6 +1424,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Tangents { .. } => "Tangents",
         NodeType::Collection { .. } => "Collection",
         NodeType::LightLinker { .. } => "Light Linker",
+        NodeType::Paint { .. } => "Paint",
         NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",

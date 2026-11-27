@@ -967,3 +967,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 27/11/2026: Release 0.5.1. (Martino)
 - 27/11/2026: README: the earlier front screenshot back as docs/xms_3split_layout.png, after the two new ones. (Martino)
 - 27/11/2026: Plans: docs/groom.md (Groom Session, Hair Generate, Groom Modify as an ICE stack, curves are curves, stable IDs); docs/paint.md updated for environment work first (Surface Masks, Paint, Scatter, Scatter Session) and one shared brush. (Martino)
+- 27/11/2026: Paint operator in point mode: float and ID channels, the shared brush, the heat map and palette in the Viewer, the .mcol file beside the graph; template Paint: a meadow scattered in ICE; docs/paint.md: scattering stays in ICE, no Scatter operator. (Martino)

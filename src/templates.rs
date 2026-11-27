@@ -28,7 +28,7 @@ pub const XMS: &str = "XMS";
 
 /// The Templates menu: whose work, then the groups of each.
 pub const MENU: [(&str, &[&str]); 3] = [
-    (MARTINO, &["USD stages", "ICE"]),
+    (MARTINO, &["USD stages", "ICE", "Paint"]),
     (
         SIMON,
         &[
@@ -73,6 +73,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "9,534 hairs carried rigidly by the animated pig's head, Alembic caches from Houdini loaded as USD: each hair bound once, at its root, to the head at rest (RootBind, per curve); its move made per curve each frame (Carry), one matrix, and every point put through it (Deform)" },
     Template { by: MARTINO, group: "ICE", name: "Snippets: roughen and relax", build: snippet_roughen_relax,
         hint: "A sphere roughened by OSL's Perlin noise, then relaxed towards its nearest points: two Snippet operators, code instead of nodes (noise(), near_points(), get_data())" },
+    Template { by: MARTINO, group: "Paint", name: "Paint: a meadow scattered in ICE", build: paint_meadow,
+        hint: "Hills (a grid lifted by noise in an ISnippet), painted: density where the meadow is, biome IDs (grass, fern, rock). The Meadow ICE graph scatters on the painted density (Scatter on Surface's Weight) and picks each instance's prototype by the biome read there (Get Data at its Polygon and Param UV). Select Paint and paint in the Viewer" },
     Template { by: MARTINO, group: "ICE", name: "Snippets: stick to a surface", build: snippet_stick,
         hint: "A subdivided cube stuck onto a squashed sphere wired into Reference 1: a Snippet operator with closest_point_on_surface(), its ground a geometry parameter (its References)" },
     Template { by: MARTINO, group: "ICE", name: "Snippets: bind simple point deformer", build: snippet_point_deform,
@@ -4072,6 +4074,218 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     format!("ICE instancing: 240 cubes, spheres and DeLoreans on a 40 m grid, each turned at random about the ground's normal and scaled from 0.6 to 1.4. Go inside the Instancing node (down arrow): Scatter on Surface gives the positions and normals, two Get References joined by Concatenate Arrays the prototypes. The cars are past the Viewer's triangle budget, so they are drawn as boxes (right-click /root/instancer in the Scene Explorer to choose).{}", missing_examples())
 }
 
+/// Hills painted with a meadow's density and its biomes, the meadow
+/// scattered and instanced in ICE from the paint.
+fn paint_meadow(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use crate::core::paint::{Channel, PaintData};
+    use xms_ice::Value;
+    crate::graph_io::clear(g);
+    let ground = g.add_node(
+        "Ground".into(),
+        NodeType::CreateGrid {
+            rows: 160,
+            cols: 160,
+            size: 60.0,
+            location: "/terrain/ground".into(),
+            xform: Default::default(),
+        },
+        p(40.0, 20.0),
+    );
+    let hills_id = store.create_snippet(
+        "Hills".into(),
+        "// Hills: the grid lifted by noise, broad and fine.\n@P.y = 9 * noise(@P * 0.035) + 1.5 * noise(@P * 0.2 + 3.7) - 5;\n",
+    );
+    let hills = g.add_node(
+        "Hills".into(),
+        NodeType::Ice {
+            id: hills_id,
+            name: "Hills".into(),
+            references: 1,
+            params: Default::default(),
+            snippet: true,
+        },
+        p(40.0, 110.0),
+    );
+    g.add_connection(ground, 0, hills, 0);
+
+    // Painted already, as an artist would have: density along a winding
+    // valley, thinning on the slopes; grass in the middle of it, ferns towards
+    // its edges, rocks at them.
+    let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, t: &[crate::ice::Reference]| {
+        store.get(sid).map(|s| s.evaluate(mesh, t)).unwrap_or_else(|| mesh.clone())
+    };
+    let channels = vec![Channel::float("density"), Channel::id("biome", &["grass", "fern", "rock"])];
+    let mut data = PaintData::new("meadow");
+    if let Some(crate::types::EvalResult::Named(prims)) = g.eval_node_out(hills, 0, &mut Default::default(), &eval) {
+        if let Some(p) = prims.first() {
+            let geo = crate::core::paint::geo_of(p);
+            let pts = geo.points().to_vec();
+            let valley = |x: f32, z: f32| (-(x + 6.0 + 7.0 * (z * 0.09).sin()).powi(2) / 60.0).exp();
+            let density: Vec<f32> = pts
+                .iter()
+                .map(|q| ((valley(q[0], q[2]) * 1.25 - 0.05 - (q[1] - 1.0).max(0.0) * 0.15).clamp(0.0, 1.0)))
+                .collect();
+            let biome: Vec<f32> = pts
+                .iter()
+                .zip(&density)
+                .map(|(q, d)| if *d > 0.6 { 1.0 } else if *d > 0.3 || q[1] < -1.0 { 2.0 } else { 3.0 })
+                .collect();
+            *data.values_mut(&p.path, &geo, &channels[0]) = density;
+            *data.values_mut(&p.path, &geo, &channels[1]) = biome;
+            data.rehash();
+        }
+    }
+    let paint = g.add_node("Paint".into(), NodeType::Paint { channels, active: 0, data }, p(40.0, 200.0));
+    g.add_connection(hills, 0, paint, 0);
+
+    // The prototypes: grass blades, a fern, a rock.
+    let proto = |g: &mut NodeGraphState, name: &str, t: NodeType, at: egui::Pos2| g.add_node(name.into(), t, at);
+    let grass = proto(
+        g,
+        "Grass",
+        NodeType::CreateCube {
+            size: 1.0,
+            location: "/library/grass".into(),
+            xform: crate::types::Xform {
+                translate: [0.0, 0.4, 0.0],
+                scale: [0.06, 0.8, 0.06],
+                ..Default::default()
+            },
+        },
+        p(320.0, 20.0),
+    );
+    let fern = proto(
+        g,
+        "Fern",
+        NodeType::CreateSphere {
+            radius: 0.5,
+            segments: 12,
+            location: "/library/fern".into(),
+            xform: crate::types::Xform {
+                translate: [0.0, 0.15, 0.0],
+                scale: [1.2, 0.4, 1.2],
+                ..Default::default()
+            },
+        },
+        p(460.0, 20.0),
+    );
+    let rock = proto(
+        g,
+        "Rock",
+        NodeType::CreateSphere {
+            radius: 0.5,
+            segments: 8,
+            location: "/library/rock".into(),
+            xform: crate::types::Xform {
+                translate: [0.0, 0.1, 0.0],
+                scale: [1.0, 0.6, 0.8],
+                ..Default::default()
+            },
+        },
+        p(600.0, 20.0),
+    );
+    let library = g.add_node(
+        "Library".into(),
+        NodeType::Merge {
+            mode: MergeMode::Auto,
+            inputs: 3,
+        },
+        p(460.0, 110.0),
+    );
+    g.add_connection(grass, 0, library, 0);
+    g.add_connection(fern, 0, library, 1);
+    g.add_connection(rock, 0, library, 2);
+
+    // The meadow in ICE: scattered by the painted density, each instance's
+    // prototype the biome read where it stands (1, 2, 3 to 0, 1, 2).
+    let id = store.create_subnet("Meadow".into());
+    if let Some(sub) = store.get_mut(id) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let add = |sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, at: egui::Pos2| {
+            let name = crate::types::subnet_node_label(&t).to_string();
+            sub.add_node(name, t, at)
+        };
+        let set = |sub: &mut crate::ice::IceGraph, id: NodeId, input: usize, v: Value| {
+            if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == id) {
+                n.inputs[input].value = Some(v);
+            }
+        };
+        let scatter = add(
+            &mut *sub,
+            IceGraphNodeType::Scatter {
+                seed: 7,
+                weight: "density".into(),
+            },
+            p(60.0, 120.0),
+        );
+        set(&mut *sub, scatter, 0, Value::Int(6000));
+        let biome = add(
+            &mut *sub,
+            IceGraphNodeType::GetData {
+                name: "biome".into(),
+                context: Some(crate::core::geo::Context::Point),
+                resample: Default::default(),
+            },
+            p(300.0, 300.0),
+        );
+        let index = add(&mut *sub, IceGraphNodeType::Math { op: xms_ice::Math::Subtract }, p(500.0, 300.0));
+        set(&mut *sub, index, 1, Value::Int(1));
+        let library = add(
+            &mut *sub,
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec!["/library/grass".into(), "/library/fern".into(), "/library/rock".into()],
+            },
+            p(60.0, 420.0),
+        );
+        let turn = add(&mut *sub, IceGraphNodeType::RandomOrientation { seed: 3 }, p(300.0, 120.0));
+        let size = add(&mut *sub, IceGraphNodeType::Random { seed: 5 }, p(300.0, 200.0));
+        set(&mut *sub, size, 0, Value::Float(0.7));
+        set(&mut *sub, size, 1, Value::Float(1.3));
+        let inst = add(
+            &mut *sub,
+            IceGraphNodeType::Instancer {
+                path: "/scatter/meadow".into(),
+                seed: 11,
+                draw_mode: crate::types::DrawMode::Default,
+            },
+            p(720.0, 220.0),
+        );
+        sub.add_connection(scatter, xms_ice::SCATTER_NORMALS, turn, 0);
+        sub.add_connection(scatter, xms_ice::SCATTER_POSITIONS, size, 2);
+        sub.add_connection(scatter, xms_ice::SCATTER_POLYGONS, biome, 0);
+        sub.add_connection(scatter, xms_ice::SCATTER_PARAM_UVS, biome, 1);
+        sub.add_connection(biome, 0, index, 0);
+        sub.add_connection(scatter, xms_ice::SCATTER_POSITIONS, inst, 0);
+        sub.add_connection(library, 0, inst, 1);
+        sub.add_connection(index, 0, inst, 2);
+        sub.add_connection(turn, 0, inst, 3);
+        sub.add_connection(size, 0, inst, 4);
+        sub.add_connection(inst, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root {
+                context: crate::core::geo::Context::Object,
+            };
+            n.position = p(960.0, 220.0);
+        }
+    }
+    let meadow = g.add_node(
+        "Meadow".into(),
+        NodeType::Ice {
+            id,
+            name: "Meadow".into(),
+            references: 1,
+            params: Default::default(),
+            snippet: false,
+        },
+        p(240.0, 290.0),
+    );
+    g.add_connection(paint, 0, meadow, 0);
+    g.add_connection(library, 0, meadow, 1);
+    finish(g, meadow, paint);
+    "Paint: a meadow. Hills made by the Hills ISnippet (noise), painted by Paint: density along the valley, biome 1 grass, 2 fern, 3 rock. The Meadow ICE graph (down arrow to go in) scatters 6,000 instances by the density (Scatter on Surface, Weight density), reads the biome where each stands (Get Data at its Polygon and Param UV), less 1, as the Instancer's Proto Indices into the Library's grass, fern and rock. Select Paint and paint with the left button: [ and ] size the brush; the meadow follows when the stroke ends.".into()
+}
+
 fn mocap_example(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::mocap_split_template(g);
     let dir = examples::path(examples::TAKES_DIR);
@@ -4093,6 +4307,78 @@ fn mocap_blank(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// A graph with a Paint operator saved and opened again: its values in
+    /// their own file beside it, named by their hash, read back the same.
+    #[test]
+    fn paint_is_saved_beside_the_graph() {
+        let mut g = crate::node_graph::NodeGraphState::default();
+        let mut store = crate::ice::IceGraphStore::default();
+        super::paint_meadow(&mut g, &mut store);
+        let painted = |g: &crate::node_graph::NodeGraphState| {
+            g.nodes
+                .iter()
+                .find_map(|n| match &n.node_type {
+                    crate::types::NodeType::Paint { data, .. } => Some(data.clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let before = painted(&g);
+        assert!(!before.prims.is_empty());
+        let dir = std::env::temp_dir().join(format!("xms_paint_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("meadow.xms");
+        crate::graph_io::save(&g, &store, &file).unwrap();
+        assert!(dir.join(before.file_name().unwrap()).is_file());
+        let json = std::fs::read_to_string(&file).unwrap();
+        assert!(json.len() < 200_000, "the values are not in the graph: {} bytes", json.len());
+        let (mut back, mut back_store) = (crate::node_graph::NodeGraphState::default(), crate::ice::IceGraphStore::default());
+        crate::graph_io::load(&mut back, &mut back_store, &file).unwrap();
+        let after = painted(&back);
+        assert_eq!(after.hash, before.hash);
+        assert_eq!(after.prims, before.prims);
+        assert!(!after.missing);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The meadow: the paint goes on the ground, the scatter follows the
+    /// density (none where it is 0) and its prototypes follow the biome.
+    #[test]
+    fn the_meadow_follows_its_paint() {
+        use crate::core::geo::Context;
+        let mut g = crate::node_graph::NodeGraphState::default();
+        let mut store = crate::ice::IceGraphStore::default();
+        super::paint_meadow(&mut g, &mut store);
+        let eval = |sid, mesh: &crate::core::geo::Geo, t: &[crate::ice::Reference]| {
+            store.get(sid).map(|s| s.evaluate(mesh, t)).unwrap_or_else(|| mesh.clone())
+        };
+        let (_, _, scene) = g.evaluate_scene(&eval).unwrap();
+        let crate::types::EvalResult::Named(prims) = scene else { panic!() };
+        let ground = prims.iter().find(|p| p.path == "/terrain/ground").unwrap();
+        let geo = ground.geo.as_ref().unwrap();
+        let density = geo.attr(Context::Point, "density").unwrap().column.floats().unwrap().to_vec();
+        assert!(density.iter().any(|d| *d > 0.9) && density.iter().any(|d| *d < 0.01), "{:?}", density.iter().fold((f32::MAX, f32::MIN), |(a, b), d| (a.min(*d), b.max(*d))));
+        let inst = prims.iter().find(|p| p.instancing.is_some()).expect("an instancer");
+        let ig = inst.geo.as_ref().unwrap();
+        assert!(ig.point_count() > 3000, "{} instances", ig.point_count());
+        let idx = ig.attr(Context::Point, "protoIndex").unwrap().column.ints().unwrap().to_vec();
+        for k in 0..3 {
+            assert!(idx.iter().any(|i| *i == k), "prototype {k} used");
+        }
+        // Each instance stands where there is density: on the valley.
+        let pts = ig.points();
+        let tree = xms_ice::spatial::KdPointTree::build(geo.points());
+        let mut near = vec![];
+        let bare = pts
+            .iter()
+            .filter(|p| {
+                tree.near(**p, 1, 0.0, &mut near);
+                density[near[0].0 as usize] < 0.01
+            })
+            .count();
+        assert!(bare * 50 < pts.len(), "{bare} of {} on bare ground", pts.len());
+    }
 
     /// How deep the skin goes into each box of the course, in the capture and
     /// after Body Collide, and over which frames: (frames touched, worst

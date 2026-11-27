@@ -44,7 +44,7 @@ fn ray_box(o: Vec3, d: Vec3, b: Bounds) -> Option<f32> {
 
 /// Where a ray first hits a mesh placed by `m`: in the mesh's own space, so the
 /// ray is moved, not the triangles.
-fn ray_mesh(o: Vec3, d: Vec3, mesh: &crate::types::MeshData, m: &Mat4) -> Option<f32> {
+pub(super) fn ray_mesh(o: Vec3, d: Vec3, mesh: &crate::types::MeshData, m: &Mat4) -> Option<f32> {
     let inv = m.inverse();
     let (lo, ld) = (inv.transform_point3(o), inv.transform_vector3(d));
     let mut best: Option<f32> = None;

@@ -738,6 +738,7 @@ impl NodeGraphState {
             | NodeType::Tangents { .. }
             | NodeType::Collection { .. }
             | NodeType::LightLinker { .. }
+            | NodeType::Paint { .. }
             | NodeType::RenameAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
             // Create: the scene, then a variant per input, one kept free.
             NodeType::Variant { mode, names, .. } => (

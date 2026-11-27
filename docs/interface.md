@@ -376,6 +376,19 @@ Transform's handles turn about its pivot (its translation plus Pivot); a camera'
 Edit Primitive's work on the first prim it names, in its parents' space, and
 override Translate, Rotate or Scale alone. World axes only, no snapping yet.
 
+### Paint
+
+With a Paint operator selected (and not bypassed), the Viewer shows its
+active channel on the prims it paints: a float as a heat map (grey for 0,
+through red and orange, to pale yellow for 1), an ID in its palette
+colours. The left button paints with the brush set in its Parameters (Add,
+Subtract, Set, Smooth, Erase; Radius, Strength, Value or ID, Mirror X,
+Slope Limit); `[` and `]` size it, and a ring shows it on the surface.
+Flood fills the selected prims, or the one under the cursor. Only the
+colours change during a stroke; what reads the paint cooks when it ends,
+and Undo takes the stroke back. The values are saved beside the graph in
+`paint/<name>.<hash>.mcol`, not in the graph file. See [Paint](paint.md).
+
 ### The Viewer's triangle budget
 
 20 million triangles and segments a frame, every copy counted. A prim set to
