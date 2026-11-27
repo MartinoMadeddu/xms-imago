@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-27
+
 ### Interface
 
 - A Viewer can be open more than once, each with its own camera,
