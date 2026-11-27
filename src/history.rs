@@ -302,6 +302,13 @@ pub fn note(label: impl Into<String>) {
     }
 }
 
+/// Name the next step, an edit (a stroke of paint, say).
+pub fn note_edit(label: impl Into<String>) {
+    if let Ok(mut n) = NOTE.lock() {
+        *n = Some((label.into(), Kind::Edit));
+    }
+}
+
 fn take_note() -> Option<(String, Kind)> {
     NOTE.lock().ok().and_then(|mut n| n.take())
 }

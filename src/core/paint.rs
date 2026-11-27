@@ -309,18 +309,9 @@ pub enum Op {
     Smooth,
     /// Back to the channel's default.
     Erase,
-}
-
-impl Op {
-    pub fn label(self) -> &'static str {
-        match self {
-            Op::Add => "Add",
-            Op::Subtract => "Subtract",
-            Op::Set => "Set",
-            Op::Smooth => "Smooth",
-            Op::Erase => "Erase",
-        }
-    }
+    /// The whole prim clicked set to the brush's value (an ID: its ID), as
+    /// far as the slope limit allows: a click, not a stroke.
+    Flood,
 }
 
 /// The brush: interface state, not the document's (not undone, not saved
@@ -362,19 +353,6 @@ pub static BRUSH: std::sync::Mutex<Brush> = std::sync::Mutex::new(Brush {
     mirror: false,
     max_slope: 90.0,
 });
-
-/// Flood asked for from the Parameters, for the Viewer to do on the
-/// selected prims.
-static FLOOD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-pub fn request_flood() {
-    FLOOD.store(true, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Whether Flood was asked for, and no longer.
-pub fn take_flood() -> bool {
-    FLOOD.swap(false, std::sync::atomic::Ordering::Relaxed)
-}
 
 pub fn brush() -> Brush {
     BRUSH.lock().map(|b| *b).unwrap_or_default()
@@ -512,7 +490,7 @@ pub fn dab(values: &mut [f32], s: &Surface, hit: Vec3, b: &Brush, channel: &Chan
                 // An ID is painted whole where the brush is more than half on.
                 (ChannelKind::Id, Op::Set | Op::Add) if w >= 0.5 * b.strength.max(1e-6) => b.value.round(),
                 (ChannelKind::Id, Op::Erase | Op::Subtract) if w >= 0.5 * b.strength.max(1e-6) => channel.default,
-                (ChannelKind::Id, _) => *v,
+                (ChannelKind::Id, _) | (ChannelKind::Float, Op::Flood) => *v,
             };
             if *v != old {
                 changed += 1;

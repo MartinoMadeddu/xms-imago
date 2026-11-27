@@ -18,8 +18,11 @@ version's heading when you tag it.
   over to new points when the mesh changes.
 - Template Paint: a meadow scattered in ICE: hills, a painted density and
   biome, and an ICE graph scattering grass, fern and rock by them.
-- The brush's tools as square icon buttons, in Paint's Parameters and as a
-  column at the Viewer's left while a Paint operator is selected.
+- The brush's tools as small square icon buttons, in Paint's Parameters and
+  as a column at the Viewer's left while a Paint operator is selected.
+- Paint: Shift smooths while painting a float channel. Flood is a brush op:
+  click the prim to fill. Strokes and floods are named in the History
+  ("Paint: paint density on /terrain/ground").
 
 ### Changed
 

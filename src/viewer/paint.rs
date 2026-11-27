@@ -15,7 +15,7 @@ use std::sync::Arc;
 use glam::{Mat4, Vec2, Vec3};
 
 use crate::core::geo::Geo;
-use crate::core::paint::{self, Channel, ChannelKind, Surface};
+use crate::core::paint::{self, Channel, ChannelKind, Op, Surface};
 use crate::types::{EvalResult, NodeId, NodeType};
 
 use super::{edit, Viewer, ViewerInput};
@@ -216,28 +216,25 @@ impl Viewer {
             best.map(|(t, i)| (o + d * t, i))
         });
 
-        // Flood, asked for in the Parameters: the selected prims painted, or
-        // the one under the brush.
-        if paint::take_flood() {
-            let chosen = input.hierarchy.selected_prims().to_vec();
-            let which: Vec<usize> = self
-                .paint
-                .targets
-                .list
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| chosen.iter().any(|c| *c == t.path))
-                .map(|(i, _)| i)
-                .chain(hit.map(|(_, i)| i).filter(|_| chosen.is_empty()))
-                .collect();
-            for i in which {
-                let s = self.surface(i);
-                let mut values = self.values_of(input, id, i, &channel);
-                paint::flood(Arc::make_mut(&mut values).as_mut_slice(), &s, &b, &channel);
-                self.commit(input, id, i, &channel, values);
-            }
+        // Shift smooths while it is held (floats only).
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let mut b = b;
+        if shift && channel.kind == ChannelKind::Float {
+            b.op = Op::Smooth;
         }
 
+        // Flood: a click fills the prim under the brush.
+        if b.op == Op::Flood {
+            if pressed && free {
+                if let Some((_, i)) = hit {
+                    let s = self.surface(i);
+                    let mut values = self.values_of(input, id, i, &channel);
+                    paint::flood(Arc::make_mut(&mut values).as_mut_slice(), &s, &b, &channel);
+                    self.commit(input, id, i, &channel, values, "flood");
+                }
+            }
+            self.paint.stroke = None;
+        } else
         // A stroke: begun over a prim, dabs along the way, kept when let go.
         if pressed && free {
             if let Some((at, i)) = hit {
@@ -266,7 +263,7 @@ impl Viewer {
                 }
             }
         } else if let Some(s) = self.paint.stroke.take() {
-            self.commit(input, s.node, s.target, &s.channel, s.values);
+            self.commit(input, s.node, s.target, &s.channel, s.values, "paint");
         }
 
         // The brush: a ring on the surface, about the normal there.
@@ -330,13 +327,14 @@ impl Viewer {
 
     /// Values painted on target `i` kept by the operator: a step of the
     /// history, and a cook.
-    fn commit(&mut self, input: &mut ViewerInput, id: NodeId, i: usize, channel: &Channel, values: Arc<Vec<f32>>) {
+    fn commit(&mut self, input: &mut ViewerInput, id: NodeId, i: usize, channel: &Channel, values: Arc<Vec<f32>>, verb: &str) {
         let Some(t) = self.paint.targets.list.get(i) else { return };
         let (path, geo) = (t.path.clone(), t.geo.clone());
         if let Some(n) = input.graph.nodes.iter_mut().find(|n| n.id == id) {
             if let NodeType::Paint { data, .. } = &mut n.node_type {
                 *data.values_mut(&path, &geo, channel) = (*values).clone();
                 data.rehash();
+                crate::history::note_edit(format!("{}: {} {} on {path}", n.name, verb, channel.name));
             }
         }
     }
@@ -371,7 +369,7 @@ pub fn toolbar(ctx: &egui::Context, rect: egui::Rect, slot: u64, top: f32, graph
                     ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                     ui.vertical(|ui| {
                         let size = egui::vec2(22.0, 22.0);
-                        crate::properties::paint::tool_buttons(ui, &mut b, kind, false, size);
+                        crate::properties::paint::tool_buttons(ui, &mut b, kind, size);
                         ui.separator();
                         let m = crate::properties::paint::square(ui, crate::icons::FLIP_HORIZONTAL, None, b.mirror, true, size)
                             .on_hover_text("Mirror X: also on the other side of the prim's own X = 0");
