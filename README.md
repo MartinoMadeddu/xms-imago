@@ -11,12 +11,16 @@ OSs, non destructive procedural workflow with USD scene at its core with
 advanced crossdata manipulation access via the Integrated Creation Engine (ICE)
 and fast mocap processing tools.
 
-![XMS | Imago with shot 03_035_A of Spring: the forest seen through the shot's
-camera in the Viewer, its stage in the Scene Explorer, and Load USD, Prune
-Primitives, Reparent, Set Variable, Render Commons and Render Settings in the
-Node Graph](docs/xms_front.png)
+![XMS | Imago with a shot of Spring in two Viewers: Arnold rendering live
+through the shot's camera on the left, Hidden Line Removal on the right, the
+Tools bar down the left and the Selection bar down the right, the Node Graph
+below](docs/xms_front.png)
 
-The scene is shot 03_035_A of [Spring](https://studio.blender.org/projects/spring/pages/about/),
+![The same shot shaded, a rock moved in the Viewer: the move is a step of
+the Edit Session at the end of the Node Graph, its Parameters open over the
+graph](docs/xms_edit_session.png)
+
+The scene is a shot of [Spring](https://studio.blender.org/projects/spring/pages/about/),
 © Blender Studio, under CC BY 4.0, as USD: from the [USD Working Group's
 Sample Assets](https://lf-aswf.atlassian.net/wiki/spaces/WGUSD/pages/11274584/Sample+Assets),
 downloaded from
@@ -34,6 +38,16 @@ One program, a few crates of its own, and open libraries under them.
   attributes (`@P += normalize(@N) * amount;`), in a Snippet node or an
   ISnippet operator, compiled into the same plans as the nodes. See
   [ISL](docs/isl.md) and its [functions](docs/isl-functions.md).
+- **Editing in the Viewer:** the Selection bar and the handles, as XSI and
+  Maya have them. A move goes where the prim's transform was set: into the
+  operator that made it (a shape, a camera, a light, each with a Transform
+  group as Solaris' LOPs), or into an Edit Session for a loaded USD stage.
+  Global or Local handles, Maya's middle-button drag, a right-click menu, and
+  as many Viewers as you like, each with its own camera, shading and render.
+  See [the Viewer](docs/interface.md#viewer) and
+  [Edit Session](docs/usd.md#edit-session).
+- **Inspection:** the Primitive Inspector lists a prim's every value, its
+  local and world transforms among them, with the operator that set each.
 - **Edit Poly:** a whole modelling session in one node.
 - **Rigging-Mocap:** procedural rigging and dynamic/ragdoll mo-cap clean up and
   process.
