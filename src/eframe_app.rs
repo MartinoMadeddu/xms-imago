@@ -24,6 +24,8 @@ pub struct ImagoApp {
     last_frame: Instant,
     /// Closing was agreed to: let the window close.
     closing: bool,
+    /// How many Viewers have GPU state: a change lets go of those closed.
+    viewers_on_gpu: usize,
 }
 
 impl ImagoApp {
@@ -49,6 +51,7 @@ impl ImagoApp {
             nav_settings: viewport::nav::NavSettings::default(),
             viewer: crate::viewer::Viewer::default(),
             last_hash: None,
+            viewers_on_gpu: 1,
             seen_scene: 0,
             last_frame: Instant::now(),
             closing: false,
@@ -83,6 +86,16 @@ impl eframe::App for ImagoApp {
             dt,
             Some(&mut self.viewer),
         );
+        // The GPU state of Viewers closed let go.
+        let open = 1 + self.app.tabs.viewers.len();
+        if open != self.viewers_on_gpu {
+            if let Some(rs) = _frame.wgpu_render_state() {
+                let mut slots = vec![self.viewer.slot];
+                slots.extend(self.app.tabs.viewers.values().map(|v| v.slot));
+                crate::viewer::keep_only(rs, &slots);
+            }
+            self.viewers_on_gpu = open;
+        }
         // Going in and out of compounds, as the panes asked: before undo, so
         // leaving an editable one is a step of the graph it is in.
         {

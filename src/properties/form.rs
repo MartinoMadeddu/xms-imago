@@ -1406,3 +1406,40 @@ mod tests {
         assert_eq!(two, [0.0, 0.0, -1.0]);
     }
 }
+
+/// The Transform group of an operator that makes a prim (Cube, Sphere, Grid,
+/// Camera, Light): the prim's own transform, as the Transform operator's.
+/// Without Scale where a scale would say nothing or distort (a camera, a
+/// dome, a distant light).
+pub fn xform_group(ui: &mut egui::Ui, x: &mut crate::types::Xform, scales: bool, hint: &str) {
+    let mut reset = false;
+    group_with(
+        ui,
+        "Transform",
+        Some(hint),
+        |ui| {
+            if ui.small_button("Reset").clicked() {
+                reset = true;
+            }
+        },
+        |f| {
+            f.xyz("Translate", None, &mut x.translate, 0.01, "");
+            f.xyz("Rotate", Some("Degrees, turned in the Rotate Order"), &mut x.rotate, 0.5, "°");
+            let orders: Vec<(crate::types::RotationOrder, &str)> =
+                crate::types::RotationOrder::ALL.iter().map(|o| (*o, o.label())).collect();
+            f.dropdown(
+                "Rotate Order",
+                Some("The order the three turns are made in, about the parent's axes: XYZ turns about X first, as USD's rotateXYZ, Maya's and Houdini's xyz"),
+                &mut x.order,
+                &orders,
+            );
+            if scales {
+                f.xyz("Scale", Some("Scales the prim as USD does: a light's own size (width, height, radius) stays as it is"), &mut x.scale, 0.01, "");
+            }
+            f.xyz("Pivot", Some("The point it turns and scales about, in its own space; the handles in the Viewer are there"), &mut x.pivot, 0.01, "");
+        },
+    );
+    if reset {
+        *x = crate::types::Xform { order: x.order, ..Default::default() };
+    }
+}

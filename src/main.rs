@@ -159,7 +159,7 @@ pub(crate) fn draw_ui(
     poly_tool: &mut modelling::PolyTool,
     nav_settings: &mut viewport::nav::NavSettings,
     dt: f64,
-    viewer: Option<&mut viewer::Viewer>,
+    mut viewer: Option<&mut viewer::Viewer>,
 ) {
     let ctx = &root.ctx().clone();
     let AppState {
@@ -455,7 +455,7 @@ pub(crate) fn draw_ui(
     // Panes
     // Every pane is a tab of one dock area: drag a tab to move it, stack it
     // with another, or pull it out as a window.
-    vp_rect.0 = None; // set again by the viewport pane if it is showing
+    vp_rect.0.clear(); // set again by each Viewer tab showing
     let locked = layout.locked;
     // Top bar
     // Fixed line above the panes, for things that belong to the whole
@@ -490,6 +490,10 @@ pub(crate) fn draw_ui(
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
                     crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked, &mut graph_file.message));
+                    // A pane the Viewer's right-click menu asked for.
+                    if let Some(pane) = viewer::menu::PANE.lock().ok().and_then(|mut p| p.take()) {
+                        layout.bring(pane);
+                    }
                     crate::menus::menu(ui, "Help", |ui| help_menu(ui, &mut graph_file.message));
                 });
                 let menus_end = ui.cursor().min.x;
@@ -692,7 +696,7 @@ pub(crate) fn draw_ui(
             timeline_state: &timeline_state,
             dt,
             keys_free,
-            viewer,
+            viewer: viewer.as_deref_mut(),
             nav_settings: *nav_settings,
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0,
@@ -830,153 +834,165 @@ pub(crate) fn draw_ui(
 
     // The Viewer's menus, and the navigation keys (the style is File >
     // Settings > Viewer's).
-    let Some(vp) = vp_rect.0 else { return };
     let style = nav_settings.style;
     // The key list is hidden until the question mark is clicked.
     let help_id = egui::Id::new("viewport_nav_help");
     let mut nav_help = ctx.data(|d| d.get_temp::<bool>(help_id)).unwrap_or(false);
-    // Background order: floating panes go over the menu, not under it.
-    egui::Area::new("viewport_nav_menu".into())
-        .order(egui::Order::Background)
-        .fixed_pos(vp.min + egui::vec2(10.0, 8.0))
-        .show(ctx, |ui| {
-            egui::Frame::NONE
-                .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
-                .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
-                .corner_radius(4.0)
-                .inner_margin(3.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.selectable_label(nav_help, "?").on_hover_text(format!("Show the navigation keys ({}; File > Settings > Viewer chooses)", style.label())).clicked() {
-                            nav_help = !nav_help;
-                        }
-                        let shown = viewport::display::mode();
-                        crate::menus::menu(ui, format!("{} {}", shown.label(), crate::icons::CARET_DOWN), |ui| {
-                            for m in viewport::display::DisplayMode::ALL {
-                                if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
-                            }
-                            ui.separator();
-                            let mut wire = viewport::display::wire_over();
-                            if ui.checkbox(&mut wire, "Wireframe on Shaded").on_hover_text("The polygons' edges over the surfaces, in Shaded and Textured").changed() { viewport::display::set_wire_over(wire); }
-                            let mut points = viewport::display::points();
-                            if ui.checkbox(&mut points, "Points").on_hover_text("Every point as a dot, hidden behind what is in front").changed() { viewport::display::set_points(points); }
-                        }).response.on_hover_text("How meshes are drawn");
-                        // Through a camera of the scene, or the Viewer's own.
-                        let looking = viewer::camera::looking_through();
-                        let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());
-                        crate::menus::menu(ui, format!("{} {name} {}", crate::icons::VIDEO_CAMERA, crate::icons::CARET_DOWN), |ui| {
-                            if ui.radio(looking.is_none(), "Perspective").clicked() { viewer::camera::look_through(None); ui.close(); }
-                            // The scene's cameras, looked for only while the menu is open.
-                            let subnets_ref = &*subnets;
-                            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
-                                subnets_ref.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
-                            };
-                            let cameras: Vec<String> = match graph.evaluate_for_viewport_packed(&eval) {
-                                Some(types::EvalResult::Named(prims)) => prims.iter().filter(|p| p.camera.is_some()).map(|p| p.path.clone()).collect(),
-                                _ => vec![],
-                            };
-                            ui.separator();
-                            if cameras.is_empty() { ui.weak("No cameras in the scene"); }
-                            for c in cameras {
-                                if ui.radio(looking.as_deref() == Some(c.as_str()), c.as_str()).clicked() { viewer::camera::look_through(Some(c)); ui.close(); }
-                            }
-                        }).response.on_hover_text("Look through a camera of the scene, or the Viewer's own (Perspective). Navigating leaves the camera, where it was");
-                        // Export Movie: the timeline's range as an MP4, through
-                        // the camera looked through.
-                        match viewer::movie::progress() {
-                            Some((done, all)) => {
-                                ui.label(egui::RichText::new(format!("Movie {done}/{all}")).small());
-                                if ui.button("Stop").on_hover_text("Stop the movie: the frames so far are kept").clicked() {
-                                    viewer::movie::stop();
-                                }
-                            }
-                            None => {
-                                let mut m = viewer::movie::Settings::load();
-                                let before = m;
-                                crate::menus::menu(ui, format!("Movie {}", crate::icons::CARET_DOWN), |ui| {
-                                    ui.weak("Codec");
-                                    for c in viewer::movie::Codec::ALL {
-                                        ui.radio_value(&mut m.codec, c, c.label());
-                                    }
-                                    ui.separator();
-                                    ui.weak("Size");
-                                    for z in viewer::movie::Size::ALL {
-                                        ui.radio_value(&mut m.size, z, z.label());
-                                    }
-                                    ui.separator();
-                                    ui.weak("Quality");
-                                    for q in viewer::movie::Quality::ALL {
-                                        ui.radio_value(&mut m.quality, q, q.label());
-                                    }
-                                    ui.separator();
-                                    if ui.button("Export Movie…").clicked() {
-                                        browser.open(BrowseTarget::ExportMovie, BrowseMode::Save, "Export movie", &["mp4"], "movie.mp4");
-                                        ui.close();
-                                    }
-                                }).response.on_hover_text("Export Movie: the timeline's frames as seen in the Viewer, as an MP4 (H.264 or H.265), by ffmpeg");
-                                if m != before {
-                                    m.save();
-                                }
-                            }
-                        }
-                        let loading = viewport::textures::pending();
-                        if loading > 0 {
-                            ui.label(egui::RichText::new(format!("loading {loading}")).small());
-                            ui.ctx().request_repaint();
-                        }
-                    });
-                });
-        });
-    // Top right: drawn, or rendered live with Arnold through the view.
-    egui::Area::new("viewport_renderer_menu".into())
-        .order(egui::Order::Background)
-        .pivot(egui::Align2::RIGHT_TOP)
-        .fixed_pos(egui::pos2(vp.max.x - 10.0, vp.min.y + 8.0))
-        .show(ctx, |ui| {
-            egui::Frame::NONE
-                .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
-                .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
-                .corner_radius(4.0)
-                .inner_margin(3.0)
-                .show(ui, |ui| {
-                    // One size whichever is chosen: the area keeps last
-                    // frame's width, and a narrower label would wrap.
-                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                    ui.set_min_width(96.0);
-                    let rendered = crate::live::in_viewer();
-                    crate::menus::menu(ui, format!("{} {}", if rendered { "Arnold" } else { "Viewport" }, crate::icons::CARET_DOWN), |ui| {
-                        if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
-                        let why = crate::live::why_not("arnold");
-                        if ui.add_enabled(why.is_none(), egui::RadioButton::new(rendered, "Arnold")).on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").on_disabled_hover_text(format!("Arnold does not render in Imago here: {}", why.unwrap_or_default())).clicked() { crate::live::set_in_viewer(true); ui.close(); }
-                    }).response.on_hover_text("Draw the scene, or render it with Arnold");
-                });
-        });
-
-    ctx.data_mut(|d| d.insert_temp(help_id, nav_help));
-    if nav_help {
-        egui::Area::new("viewport_label".into())
+    // Each Viewer's menus, over it: its own mode, camera and render put in
+    // while they are drawn.
+    for (tab_id, vp) in vp_rect.0.clone() {
+        let v = if tabs.main_viewer == Some(tab_id) {
+            viewer.as_deref_mut()
+        } else {
+            tabs.viewers.get_mut(&tab_id)
+        };
+        let Some(v) = v else { continue };
+        v.swap_in();
+        // Background order: floating panes go over the menu, not under it.
+        egui::Area::new(egui::Id::new(("viewport_nav_menu", tab_id)))
             .order(egui::Order::Background)
-            .fixed_pos(vp.min + egui::vec2(10.0, 40.0))
-            .interactable(false)
+            .fixed_pos(vp.min + egui::vec2(10.0, 8.0))
             .show(ctx, |ui| {
                 egui::Frame::NONE
-                    .fill(theme::c(90, 90, 90).gamma_multiply(0.86))
+                    .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
                     .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
-                    .corner_radius(6.0)
-                    .inner_margin(8.0)
+                    .corner_radius(4.0)
+                    .inner_margin(3.0)
                     .show(ui, |ui| {
-                        let play = if style == viewport::nav::NavStyle::Houdini {
-                            "Tap Space: play  |  Left/Right: step"
-                        } else {
-                            "Space: play  |  Left/Right: step"
-                        };
-                        let nav_lines = style.help();
-                        for line in nav_lines.iter().chain(["Scroll: zoom", "F: focus", play].iter()) {
-                            ui.label(egui::RichText::new(*line).color(egui::Color32::from_rgb(190, 190, 190)));
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(nav_help, "?").on_hover_text(format!("Show the navigation keys ({}; File > Settings > Viewer chooses)", style.label())).clicked() {
+                                nav_help = !nav_help;
+                            }
+                            let shown = viewport::display::mode();
+                            crate::menus::menu(ui, format!("{} {}", shown.label(), crate::icons::CARET_DOWN), |ui| {
+                                for m in viewport::display::DisplayMode::ALL {
+                                    if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
+                                }
+                                ui.separator();
+                                let mut wire = viewport::display::wire_over();
+                                if ui.checkbox(&mut wire, "Wireframe on Shaded").on_hover_text("The polygons' edges over the surfaces, in Shaded and Textured").changed() { viewport::display::set_wire_over(wire); }
+                                let mut points = viewport::display::points();
+                                if ui.checkbox(&mut points, "Points").on_hover_text("Every point as a dot, hidden behind what is in front").changed() { viewport::display::set_points(points); }
+                            }).response.on_hover_text("How meshes are drawn");
+                            // Through a camera of the scene, or the Viewer's own.
+                            let looking = viewer::camera::looking_through();
+                            let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());
+                            crate::menus::menu(ui, format!("{} {name} {}", crate::icons::VIDEO_CAMERA, crate::icons::CARET_DOWN), |ui| {
+                                if ui.radio(looking.is_none(), "Perspective").clicked() { viewer::camera::look_through(None); ui.close(); }
+                                // The scene's cameras, looked for only while the menu is open.
+                                let subnets_ref = &*subnets;
+                                let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
+                                    subnets_ref.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                                };
+                                let cameras: Vec<String> = match graph.evaluate_for_viewport_packed(&eval) {
+                                    Some(types::EvalResult::Named(prims)) => prims.iter().filter(|p| p.camera.is_some()).map(|p| p.path.clone()).collect(),
+                                    _ => vec![],
+                                };
+                                ui.separator();
+                                if cameras.is_empty() { ui.weak("No cameras in the scene"); }
+                                for c in cameras {
+                                    if ui.radio(looking.as_deref() == Some(c.as_str()), c.as_str()).clicked() { viewer::camera::look_through(Some(c)); ui.close(); }
+                                }
+                            }).response.on_hover_text("Look through a camera of the scene, or the Viewer's own (Perspective). Navigating leaves the camera, where it was");
+                            // Export Movie: the timeline's range as an MP4, through
+                            // the camera looked through.
+                            match viewer::movie::progress() {
+                                Some((done, all)) => {
+                                    ui.label(egui::RichText::new(format!("Movie {done}/{all}")).small());
+                                    if ui.button("Stop").on_hover_text("Stop the movie: the frames so far are kept").clicked() {
+                                        viewer::movie::stop();
+                                    }
+                                }
+                                None => {
+                                    let mut m = viewer::movie::Settings::load();
+                                    let before = m;
+                                    crate::menus::menu(ui, format!("Movie {}", crate::icons::CARET_DOWN), |ui| {
+                                        ui.weak("Codec");
+                                        for c in viewer::movie::Codec::ALL {
+                                            ui.radio_value(&mut m.codec, c, c.label());
+                                        }
+                                        ui.separator();
+                                        ui.weak("Size");
+                                        for z in viewer::movie::Size::ALL {
+                                            ui.radio_value(&mut m.size, z, z.label());
+                                        }
+                                        ui.separator();
+                                        ui.weak("Quality");
+                                        for q in viewer::movie::Quality::ALL {
+                                            ui.radio_value(&mut m.quality, q, q.label());
+                                        }
+                                        ui.separator();
+                                        if ui.button("Export Movie…").clicked() {
+                                            browser.open(BrowseTarget::ExportMovie, BrowseMode::Save, "Export movie", &["mp4"], "movie.mp4");
+                                            ui.close();
+                                        }
+                                    }).response.on_hover_text("Export Movie: the timeline's frames as seen in the Viewer, as an MP4 (H.264 or H.265), by ffmpeg");
+                                    if m != before {
+                                        m.save();
+                                    }
+                                }
+                            }
+                            let loading = viewport::textures::pending();
+                            if loading > 0 {
+                                ui.label(egui::RichText::new(format!("loading {loading}")).small());
+                                ui.ctx().request_repaint();
+                            }
+                        });
                     });
             });
+        // Top right: drawn, or rendered live with Arnold through the view.
+        egui::Area::new(egui::Id::new(("viewport_renderer_menu", tab_id)))
+            .order(egui::Order::Background)
+            .pivot(egui::Align2::RIGHT_TOP)
+            .fixed_pos(egui::pos2(vp.max.x - 10.0, vp.min.y + 8.0))
+            .show(ctx, |ui| {
+                egui::Frame::NONE
+                    .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
+                    .corner_radius(4.0)
+                    .inner_margin(3.0)
+                    .show(ui, |ui| {
+                        // One size whichever is chosen: the area keeps last
+                        // frame's width, and a narrower label would wrap.
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        ui.set_min_width(96.0);
+                        let rendered = crate::live::in_viewer();
+                        crate::menus::menu(ui, format!("{} {}", if rendered { "Arnold" } else { "Viewport" }, crate::icons::CARET_DOWN), |ui| {
+                            if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
+                            let why = crate::live::why_not("arnold");
+                            if ui.add_enabled(why.is_none(), egui::RadioButton::new(rendered, "Arnold")).on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").on_disabled_hover_text(format!("Arnold does not render in Imago here: {}", why.unwrap_or_default())).clicked() { crate::live::set_in_viewer(true); ui.close(); }
+                        }).response.on_hover_text("Draw the scene, or render it with Arnold");
+                    });
+            });
+
+        if nav_help {
+            egui::Area::new(egui::Id::new(("viewport_label", tab_id)))
+                .order(egui::Order::Background)
+                .fixed_pos(vp.min + egui::vec2(10.0, 40.0))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(theme::c(90, 90, 90).gamma_multiply(0.86))
+                        .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
+                        .corner_radius(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            let play = if style == viewport::nav::NavStyle::Houdini {
+                                "Tap Space: play  |  Left/Right: step"
+                            } else {
+                                "Space: play  |  Left/Right: step"
+                            };
+                            let nav_lines = style.help();
+                            for line in nav_lines.iter().chain(["Scroll: zoom", "F: focus", play].iter()) {
+                                ui.label(egui::RichText::new(*line).color(egui::Color32::from_rgb(190, 190, 190)));
+                            }
+                        });
+                });
+        }
+        v.swap_out();
     }
+    ctx.data_mut(|d| d.insert_temp(help_id, nav_help));
+
 }
 
 /// The program's mark: two crossing wires with a node at each end, for the X of
@@ -1523,8 +1539,22 @@ impl Panes<'_> {
     fn draw_tab(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match tab.pane {
             Pane::Viewer => {
-                self.vp_rect.0 = Some(ui.max_rect());
-                if let Some(v) = self.viewer.as_deref_mut() {
+                self.vp_rect.0.push((tab.id, ui.max_rect()));
+                // The program's own Viewer, or this tab's, looking where the
+                // first looks to start with.
+                let main = self.tabs.main_viewer == Some(tab.id);
+                let v = match self.viewer.as_deref_mut() {
+                    Some(v) if main => Some(v),
+                    Some(first) => Some(
+                        self.tabs
+                            .viewers
+                            .entry(tab.id)
+                            .or_insert_with(|| first.another(tab.id as u64 + 1)),
+                    ),
+                    None => None,
+                };
+                if let Some(v) = v {
+                    v.swap_in();
                     v.show(
                         ui,
                         viewer::ViewerInput {
@@ -1537,6 +1567,22 @@ impl Panes<'_> {
                             tool: &mut *self.poly_tool,
                         },
                     );
+                    v.swap_out();
+                }
+                // Shift+Enter over the Viewer: an Edit Primitive on what is
+                // selected, as Enter in the Scene Explorer.
+                let rect = ui.max_rect();
+                let (over, asked) = ui.input(|i| {
+                    (
+                        i.pointer.hover_pos().is_some_and(|p| rect.contains(p)),
+                        i.modifiers.shift && i.key_pressed(egui::Key::Enter),
+                    )
+                });
+                if over && asked && !ui.ctx().egui_wants_keyboard_input() {
+                    let chosen = self.hierarchy.selected_prims().to_vec();
+                    if !chosen.is_empty() {
+                        self.graph.edit_primitives(&chosen);
+                    }
                 }
             }
 

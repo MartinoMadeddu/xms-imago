@@ -16,6 +16,7 @@ pub mod gizmo;
 pub mod info;
 pub(crate) mod gpu;
 pub mod movie;
+pub mod menu;
 mod occlusion;
 mod pick;
 pub(crate) mod scene;
@@ -25,7 +26,7 @@ use std::sync::Arc;
 use glam::Vec2;
 
 use crate::viewport::nav::{Held, NavAction, NavSettings, NavStyle};
-pub use gpu::install;
+pub use gpu::{install, keep_only};
 
 /// The start of the note saying why the Viewer's render stopped.
 const STOPPED: &str = "Arnold stopped: ";
@@ -68,14 +69,64 @@ struct Drag {
     space_used: bool,
 }
 
+/// What each Viewer has of its own that the program keeps in one place while
+/// a Viewer is drawn: its display mode, the camera it looks through, and
+/// whether it renders with Arnold. Put in before a Viewer and its menus are
+/// drawn (`Viewer::swap_in`), taken back after (`Viewer::swap_out`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Own {
+    pub mode: crate::viewport::display::DisplayMode,
+    pub look: Option<String>,
+    pub arnold: bool,
+}
+
+impl Default for Own {
+    fn default() -> Self {
+        Own {
+            mode: crate::viewport::display::mode(),
+            look: None,
+            arnold: false,
+        }
+    }
+}
+
+/// As the program has them now.
+fn current() -> Own {
+    Own {
+        mode: crate::viewport::display::mode(),
+        look: camera::looking_through(),
+        arnold: crate::live::in_viewer(),
+    }
+}
+
+/// What was last put in: anything else there was changed from outside a
+/// Viewer (a Camera operator's Look through), and goes to the Viewer last
+/// used.
+static PUT: std::sync::Mutex<Option<Own>> = std::sync::Mutex::new(None);
+static FROM_OUTSIDE: std::sync::Mutex<Option<Own>> = std::sync::Mutex::new(None);
+/// The Viewer last clicked in (by `slot`), and the one rendering with Arnold.
+static ACTIVE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ARNOLD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
 #[derive(Default)]
 pub struct Viewer {
+    /// Which Viewer: its GPU state (`gpu::ViewerGpus`), and which is active.
+    /// 0 for the first.
+    pub slot: u64,
+    /// Its own mode, camera looked through and render (`Own`).
+    pub own: Own,
     camera: camera::Camera,
     drag: Drag,
     /// What the left button is doing for Edit Poly.
     edit_drag: crate::modelling::Drag,
     /// A handle of a Transform or Camera node being dragged.
     gizmo_drag: Option<gizmo::Drag>,
+    /// What the right-click menu was opened on.
+    menu: menu::Opened,
+    /// Isolate: only these, and what is below them, drawn here.
+    isolate: Vec<String>,
+    /// Frame asked for by the menu: the selection (true) or everything.
+    frame_request: Option<bool>,
     /// Where the left button went down over the Viewer, for a click that picks
     /// a primitive (a drag is not a click).
     press: Option<egui::Pos2>,
@@ -109,9 +160,67 @@ pub struct Viewer {
 }
 
 impl Viewer {
+    /// Another Viewer, looking where this one looks, in its mode.
+    pub fn another(&self, slot: u64) -> Viewer {
+        Viewer {
+            slot,
+            own: Own {
+                arnold: false,
+                ..self.own.clone()
+            },
+            camera: self.camera,
+            ..Default::default()
+        }
+    }
+
+    /// Its own mode, camera looked through and render put in place, before it
+    /// or its menus are drawn. A change made from outside since (a Camera
+    /// operator's Look through) is taken by the Viewer last used; only one
+    /// Viewer renders.
+    pub fn swap_in(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let now = current();
+        let put = PUT.lock().unwrap().clone();
+        if put.as_ref().is_some_and(|p| *p != now) {
+            *FROM_OUTSIDE.lock().unwrap() = Some(now);
+        }
+        if ACTIVE.load(Relaxed) == self.slot {
+            if let Some(o) = FROM_OUTSIDE.lock().unwrap().take() {
+                self.own = o;
+            }
+        }
+        if self.own.arnold && ARNOLD.load(Relaxed) != self.slot {
+            self.own.arnold = false;
+        }
+        crate::viewport::display::put_mode(self.own.mode);
+        camera::look_through(self.own.look.clone());
+        crate::live::put_in_viewer(self.own.arnold);
+        *PUT.lock().unwrap() = Some(self.own.clone());
+    }
+
+    /// What it was changed to while drawn, taken back. Turned to Arnold, it
+    /// is the one Viewer that renders.
+    pub fn swap_out(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let now = current();
+        if now.arnold && !self.own.arnold {
+            ARNOLD.store(self.slot, Relaxed);
+        }
+        self.own = now;
+        *PUT.lock().unwrap() = Some(self.own.clone());
+    }
+
+    /// Clicked in: the Viewer a change from outside goes to.
+    fn used(&self) {
+        ACTIVE.store(self.slot, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, mut input: ViewerInput) {
         let rect = ui.max_rect();
-        ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        if ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
+            self.used();
+        }
         let aspect = rect.width() / rect.height().max(1.0);
         self.follow_look_through();
         self.navigate(ui.ctx(), rect, &input.nav, input.playback);
@@ -124,7 +233,8 @@ impl Viewer {
             (rect.width() * ppp).round().max(1.0) as u32,
             (rect.height() * ppp).round().max(1.0) as u32,
         ];
-        if self.movie.is_none() {
+        // The movie is made by the Viewer last used.
+        if self.movie.is_none() && ACTIVE.load(std::sync::atomic::Ordering::Relaxed) == self.slot {
             let film = self.looking().map(|(_, _, c)| c.gate_aspect());
             self.movie = movie::Job::start(input.graph, input.playback, pane, film);
         }
@@ -152,7 +262,9 @@ impl Viewer {
                 ^ input.hierarchy.selection_revision().rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
-            crate::viewport::display::key() ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
+            crate::viewport::display::key()
+                ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8)
+                ^ hash_of(&self.isolate.join("\n")).rotate_left(24),
         );
         if self.built != Some(key) {
             self.built = Some(key);
@@ -162,6 +274,7 @@ impl Viewer {
                 subnets: input.subnets,
                 hierarchy: input.hierarchy,
                 time: input.playback.time,
+                isolate: &self.isolate,
             };
             self.scene = Arc::new(scene::build(&inputs, &mut self.cache, self.generation));
         }
@@ -201,6 +314,14 @@ impl Viewer {
                         .unwrap_or(true)
             });
             let free = over && !input.nav.style.claims_left_button(held);
+            // The middle button is the camera's in some styles (Blender's),
+            // and with the navigation keys in all.
+            let middle_free = over
+                && input
+                    .nav
+                    .style
+                    .action(crate::viewport::nav::Held { mmb: true, lmb: false, rmb: false, ..held })
+                    .is_none();
             let g = gizmo::run(
                 ui.ctx(),
                 rect,
@@ -209,11 +330,13 @@ impl Viewer {
                 input.tool,
                 &mut self.gizmo_drag,
                 free,
+                middle_free,
                 input.hierarchy.selected_prims(),
                 input.subnets,
             );
             overlay.top.extend(g.top);
             self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
+            self.context_menu(&response, rect, &view, &mut input);
         }
 
         let size = pane;
@@ -244,6 +367,7 @@ impl Viewer {
         // Points coloured by an attribute shown, as Edit Poly's dots are drawn.
         overlay.points.extend_from_slice(&self.scene.dots);
         let frame = gpu::Frame {
+            slot: self.slot,
             capture,
             view_proj,
             eye,
@@ -273,7 +397,7 @@ impl Viewer {
         let bar = self.snaps_bar(ui.ctx(), rect);
         // Attributes, at the top left under the Viewer's bar: the names of
         // the attributes of the prims shown, made only while its menu is open.
-        attributes::button(ui.ctx(), rect, || {
+        attributes::button(ui.ctx(), rect, self.slot, || {
             let subnets = input.subnets;
             let eval =
                 |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
@@ -531,7 +655,7 @@ impl Viewer {
     /// it: the program's snapshots (the Image Viewer's too), Snap keeping the
     /// render in the Viewer. Where its top is.
     fn snaps_bar(&mut self, ctx: &egui::Context, rect: egui::Rect) -> f32 {
-        let shown = egui::Area::new(egui::Id::new("viewer_snaps"))
+        let shown = egui::Area::new(egui::Id::new(("viewer_snaps", self.slot)))
             .order(egui::Order::Background)
             .pivot(egui::Align2::LEFT_BOTTOM)
             .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.max.y - 8.0))
@@ -751,6 +875,11 @@ impl Viewer {
                 i.pointer.hover_pos(),
             )
         });
+        // Frame Selected or Frame All from the right-click menu.
+        let (selection, all, held, pointer) = match self.frame_request.take() {
+            Some(sel) => (sel, !sel, false, Some(rect.center())),
+            None => (selection, all, held, pointer),
+        };
         if !(selection || all) || held || !pointer.is_some_and(|p| rect.contains(p)) {
             return;
         }

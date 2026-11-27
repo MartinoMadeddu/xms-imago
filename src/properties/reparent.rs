@@ -24,7 +24,7 @@ pub fn reparent_in(graph: &NodeGraphState, id: NodeId) -> ReparentIn {
     let NodeType::Reparent { parent, mode, .. } = &n.node_type else {
         return ReparentIn::default();
     };
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let scene = n
         .inputs
         .first()

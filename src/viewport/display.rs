@@ -54,6 +54,12 @@ pub fn set_mode(m: DisplayMode) {
     super::textures::touch();
 }
 
+/// The mode as a Viewer has it, put while that Viewer is drawn (several
+/// Viewers each keep their own: `viewer::Own`). Nothing else is touched.
+pub fn put_mode(m: DisplayMode) {
+    MODE.store(m.code(), Ordering::Relaxed);
+}
+
 /// Drawn over any mode: the wireframe (in Shaded and Textured, which draw
 /// none), and every point as a dot, as Houdini's Display Points does. Off
 /// whenever Imago starts, as the mode is.

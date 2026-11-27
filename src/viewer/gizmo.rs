@@ -19,7 +19,7 @@
 use glam::{EulerRot, Quat, Vec2, Vec3};
 
 use crate::core::edit_session::{self, Place};
-use crate::core::manip::{self, Delta, Handle, Tool, AXES, RING_STEPS};
+use crate::core::manip::{self, Delta, Handle, Tool, RING_STEPS};
 use crate::core::poly::PickView;
 use crate::modelling::PolyTool;
 use crate::node_graph::NodeGraphState;
@@ -52,7 +52,22 @@ pub struct Target {
     pub parents: glam::Mat4,
     /// The selected prims a drag moves (`SESSION`), each where it is.
     pub places: Vec<Place>,
+    /// For each of `places`, the operator holding its transform, and that
+    /// transform: a drag writes into it rather than the Edit Session.
+    pub held: Vec<Held>,
+    /// Which way the prim faces in the world: the handles' axes in Local
+    /// space, and always for Scale (a prim scales along its own axes).
+    pub frame: Quat,
 }
+
+/// The rotation of a matrix.
+fn turn(m: glam::Mat4) -> Quat {
+    m.to_scale_rotation_translation().1
+}
+
+/// The operator holding a prim's transform, and its translate, rotation and
+/// scale as it holds them.
+pub type Held = Option<(NodeId, (Vec3, Quat, Vec3))>;
 
 /// The target the selected node makes, if any.
 /// The ICE graphs evaluated as the Viewer evaluates them: what is cooked
@@ -65,7 +80,11 @@ fn ice(
 }
 
 pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Target> {
-    let id = graph.selected_node?;
+    node_target(graph, subnets, graph.selected_node?)
+}
+
+/// The target operator `id` makes, if any.
+fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: NodeId) -> Option<Target> {
     let node = graph.nodes.iter().find(|n| n.id == id)?;
     // Keyed parameters as at the playhead.
     match &*graph.animated_type(node) {
@@ -91,26 +110,25 @@ pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Op
                 scales: true,
                 parents: glam::Mat4::IDENTITY,
                 places: vec![],
+                held: vec![],
+                frame: order.quat(*rotation),
             })
         }
-        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => Some(Target {
-            node: id,
-            pivot: Vec3::from(*translate),
-            base: (
-                Vec3::from(*translate),
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    rotate[0].to_radians(),
-                    rotate[1].to_radians(),
-                    rotate[2].to_radians(),
-                ),
-                Vec3::ONE,
-            ),
-            uniform: true,
-            scales: false,
-            parents: glam::Mat4::IDENTITY,
-            places: vec![],
-        }),
+        // A prim's maker holding its transform: the handles at its pivot.
+        t if t.xform().is_some() => {
+            let (x, scales) = t.xform()?;
+            Some(Target {
+                node: id,
+                pivot: Vec3::from(x.translate) + Vec3::from(x.pivot),
+                base: (Vec3::from(x.translate), x.quat(), Vec3::from(x.scale)),
+                uniform: false,
+                scales,
+                parents: glam::Mat4::IDENTITY,
+                places: vec![],
+                held: vec![],
+                frame: x.quat(),
+            })
+        }
         NodeType::EditPrimitive { kind, edits } => {
             use crate::core::edit_primitive::{handles, EditKind};
             let pass = ice(subnets);
@@ -127,18 +145,17 @@ pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Op
                 edits,
             )?;
             let r = r.map(f32::to_radians);
+            let q = Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]);
             Some(Target {
                 node: id,
                 pivot: parents.transform_point3(Vec3::from(t)),
-                base: (
-                    Vec3::from(t),
-                    Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]),
-                    Vec3::from(s),
-                ),
+                base: (Vec3::from(t), q, Vec3::from(s)),
                 uniform: false,
                 scales: *kind != EditKind::Camera,
                 parents,
                 places: vec![],
+                held: vec![],
+                frame: turn(parents) * q,
             })
         }
         _ => None,
@@ -156,12 +173,8 @@ fn has_own_handles(graph: &NodeGraphState) -> bool {
     };
     matches!(
         n.node_type,
-        NodeType::Transform { .. }
-            | NodeType::Camera { .. }
-            | NodeType::Light { .. }
-            | NodeType::EditPrimitive { .. }
-            | NodeType::EditPoly { .. }
-    )
+        NodeType::Transform { .. } | NodeType::EditPrimitive { .. } | NodeType::EditPoly { .. }
+    ) || n.node_type.holds_xform()
 }
 
 /// The places of the prims selected, in the scene viewed. Nothing when the
@@ -212,11 +225,92 @@ fn looked_up(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen
     edit_session::places(&prims, chosen)
 }
 
+/// Whether the Selection bar and the handles put every edit into the Edit
+/// Session, even of a prim whose operator holds its transform.
+pub static SESSION_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Where the own transform of each of `chosen` is written: the operator that
+/// made it when that operator holds it and nothing after it moved the prim
+/// (`prim_inspector::xform_by`), else `None`, the Edit Session. All `None`
+/// with `SESSION_ONLY` on.
+pub fn sources(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Vec<Option<NodeId>> {
+    use std::hash::{Hash, Hasher};
+    if SESSION_ONLY.load(std::sync::atomic::Ordering::Relaxed) || chosen.is_empty() || chosen.len() > MAX_PRIMS {
+        return vec![None; chosen.len()];
+    }
+    let Some(view) = graph.view_flag else {
+        return vec![None; chosen.len()];
+    };
+    // Kept as the places are: asked every frame.
+    static KEPT: std::sync::Mutex<Option<(u64, Vec<Option<NodeId>>)>> = std::sync::Mutex::new(None);
+    let key = graph.cook_key(view, graph.view_output).map(|k| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (k, graph.time.to_bits(), chosen).hash(&mut h);
+        h.finish()
+    });
+    if let (Some(key), Some((k, kept))) = (key, KEPT.lock().unwrap().as_ref()) {
+        if *k == key {
+            return kept.clone();
+        }
+    }
+    let pass = ice(subnets);
+    let prims = match graph.evaluate_for_viewport_packed(&pass) {
+        Some(crate::types::EvalResult::Named(p)) => p,
+        _ => vec![],
+    };
+    let found: Vec<Option<NodeId>> = chosen
+        .iter()
+        .map(|path| {
+            // A stage's prim (a group of it too): its Load USD made it.
+            let tree = prims
+                .iter()
+                .find(|p| &p.path == path)
+                .and_then(|p| p.stage.clone())
+                .or_else(|| {
+                    prims
+                        .iter()
+                        .filter_map(|p| p.stage.as_ref())
+                        .find(|t| t.nodes.iter().any(|n| &n.path == path))
+                        .cloned()
+                });
+            crate::prim_inspector::xform_by(graph, view, path, tree.as_deref())
+                .filter(|x| x.writes && graph.nodes.iter().any(|n| n.id == x.node && n.node_type.holds_xform()))
+                .map(|x| x.node)
+        })
+        .collect();
+    if let Some(key) = key {
+        *KEPT.lock().unwrap() = Some((key, found.clone()));
+    }
+    found
+}
+
 /// The handles of the prims selected: on the first, its place as the scene
-/// viewed has it.
+/// viewed has it. One prim whose operator holds its transform: that
+/// operator's handles, writing into it.
 pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Option<Target> {
     let places = selected_places(graph, subnets, chosen);
     let first = places.first()?;
+    if let ([one], [Some(id)]) = (places.as_slice(), sources(graph, subnets, chosen).as_slice()) {
+        if let Some(t) = node_target(graph, subnets, *id) {
+            return Some(Target {
+                pivot: one.parents.transform_point3(t.pivot),
+                parents: one.parents,
+                frame: turn(one.parents) * t.frame,
+                ..t
+            });
+        }
+    }
+    // Several: each into the operator holding it, the rest into the session.
+    let ids = sources(graph, subnets, chosen);
+    let held: Vec<Held> = places
+        .iter()
+        .map(|p| {
+            let id = chosen.iter().position(|c| *c == p.path).and_then(|i| ids.get(i).copied().flatten())?;
+            let n = graph.nodes.iter().find(|n| n.id == id)?;
+            let (x, _) = graph.animated_type(n).xform().map(|(x, s)| (*x, s))?;
+            Some((id, (Vec3::from(x.translate), x.quat(), Vec3::from(x.scale))))
+        })
+        .collect();
     let (t, r, s) = trs(first);
     Some(Target {
         node: SESSION,
@@ -225,7 +319,9 @@ pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStor
         uniform: false,
         scales: true,
         parents: first.parents,
+        frame: turn(first.parents) * r,
         places,
+        held,
     })
 }
 
@@ -320,21 +416,29 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
                 }
             }
         },
-        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => match delta {
-            Delta::Translate(_) => {
-                if *translate != t.to_array() {
-                    *translate = t.to_array();
+        nt if nt.xform().is_some() => {
+            let Some((x, scales)) = nt.xform_mut() else { return };
+            match delta {
+                Delta::Translate(_) => {
+                    if x.translate != t.to_array() {
+                        x.translate = t.to_array();
+                    }
                 }
-            }
-            Delta::Rotate(_) => {
-                let e = euler();
-                let d = [e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()];
-                if *rotate != d {
-                    *rotate = d;
+                Delta::Rotate(_) => {
+                    let e = x.order.angles(r);
+                    let d = [e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()];
+                    if x.rotate != d {
+                        x.rotate = d;
+                    }
                 }
+                Delta::Scale(_) if scales => {
+                    if x.scale != s.to_array() {
+                        x.scale = s.to_array();
+                    }
+                }
+                Delta::Scale(_) => {}
             }
-            Delta::Scale(_) => {}
-        },
+        }
         // An override of the part dragged, the rest left to the prim.
         NodeType::EditPrimitive { edits, .. } => {
             let (name, v) = match delta {
@@ -369,6 +473,12 @@ pub struct Drag {
     pub tool: Tool,
     /// The selected prims dragged (`SESSION`), as they were when it began.
     pub places: Vec<Place>,
+    /// Who holds each of `places`' transforms, as it held it then.
+    pub held: Vec<Held>,
+    /// The handles' axes when it began.
+    pub frame: Quat,
+    /// Dragged with the middle button, anywhere: Maya's.
+    pub middle: bool,
 }
 
 /// The tool a target can use: Scale on a camera falls back to Move.
@@ -391,6 +501,7 @@ pub fn run(
     tool: &mut PolyTool,
     drag: &mut Option<Drag>,
     free: bool,
+    middle_free: bool,
     chosen: &[String],
     subnets: &crate::ice::IceGraphStore,
 ) -> Overlay {
@@ -399,11 +510,13 @@ pub fn run(
         return Overlay::default();
     };
     let origin = Vec2::new(rect.min.x, rect.min.y);
-    let (cursor, pressed, down, keys, ctrl, alt) = ctx.input(|i| {
+    let (cursor, pressed, down, mid_pressed, mid_down, keys, ctrl, alt) = ctx.input(|i| {
         (
             i.pointer.hover_pos().map(|p| Vec2::new(p.x - origin.x, p.y - origin.y)),
             i.pointer.button_pressed(egui::PointerButton::Primary),
             i.pointer.button_down(egui::PointerButton::Primary),
+            i.pointer.button_pressed(egui::PointerButton::Middle),
+            i.pointer.button_down(egui::PointerButton::Middle),
             [
                 i.key_pressed(egui::Key::Q),
                 i.key_pressed(egui::Key::W),
@@ -426,14 +539,25 @@ pub fn run(
     }
     let used = tool_for(&t, tool.tool);
     let size = manip::gizmo_size(view, t.pivot);
+    // The handles' axes: the prim's own in Local space (the Selection bar's
+    // Global and Local), and always for Scale.
+    let space: crate::selection_bar::Space =
+        ctx.data(|d| d.get_temp(egui::Id::new("selection_bar_space"))).unwrap_or_default();
+    let frame = if used == Tool::Scale || space == crate::selection_bar::Space::Local {
+        t.frame
+    } else {
+        Quat::IDENTITY
+    };
 
     // A drag in progress, or over.
     if let Some(d) = drag.clone() {
-        if !down || d.node != t.node {
+        let held_down = if d.middle { mid_down } else { down };
+        if !held_down || d.node != t.node {
             *drag = None;
         } else {
             let now = cursor.unwrap_or(d.start);
-            let mut delta = manip::drag_delta(view, d.tool, d.handle, d.pivot, d.size, d.start, now);
+            let mut delta =
+                manip::drag_delta(view, d.tool, d.handle, d.pivot, d.size, d.start, now, d.frame, d.middle);
             if let (true, Delta::Scale(s)) = (t.uniform, delta) {
                 // One axis pulled scales all three alike.
                 let k = if (s.x - 1.0).abs() > 1e-6 {
@@ -454,7 +578,21 @@ pub fn run(
                         Delta::Rotate(_) => "Rotate",
                         Delta::Scale(_) => "Scale",
                     };
-                    graph.record_edits(verb, &prim_values(&d.places, delta));
+                    // Each prim whose operator holds its transform: into it,
+                    // about its pivot. The rest into the Edit Session.
+                    let mut rest = vec![];
+                    for (k, p) in d.places.iter().enumerate() {
+                        match d.held.get(k).copied().flatten() {
+                            Some((id, base)) => {
+                                let local = into(p.parents, delta);
+                                write(graph, id, local, manip::compose(base, local));
+                            }
+                            None => rest.push(p.clone()),
+                        }
+                    }
+                    if !rest.is_empty() {
+                        graph.record_edits(verb, &prim_values(&rest, delta));
+                    }
                 }
             } else {
                 let delta = into(t.parents, delta);
@@ -465,34 +603,122 @@ pub fn run(
     }
     tool.hot = match drag {
         Some(d) => Some(d.handle),
-        None if free => cursor.and_then(|c| manip::hit_handle(view, used, t.pivot, size, c, 9.0)),
+        None if free => cursor.and_then(|c| manip::hit_handle(view, used, t.pivot, size, c, 9.0, frame)),
         None => None,
+    };
+    let start = |handle: Handle, c: Vec2, middle: bool| Drag {
+        node: t.node,
+        handle,
+        start: c,
+        pivot: t.pivot,
+        size,
+        base: t.base,
+        tool: used,
+        places: t.places.clone(),
+        held: t.held.clone(),
+        frame,
+        middle,
     };
     if pressed && free && drag.is_none() {
         if let (Some(handle), Some(c)) = (tool.hot, cursor) {
-            *drag = Some(Drag {
-                node: t.node,
-                handle,
-                start: c,
-                pivot: t.pivot,
-                size,
-                base: t.base,
-                tool: used,
-                places: t.places.clone(),
-            });
+            // The handle dragged is the one the middle button moves by next.
+            tool.set_active(used, handle);
+            *drag = Some(start(handle, c, false));
+        }
+    }
+    // The middle button anywhere in the Viewer: by the last handle dragged,
+    // as in Maya. Not with Select, nor when the middle button moves the
+    // camera.
+    if mid_pressed && middle_free && used != Tool::Select && drag.is_none() {
+        if let Some(c) = cursor {
+            let handle = tool.active(used);
+            // Scale's centre is the only even one; Rotate has no centre.
+            *drag = Some(start(handle, c, true));
         }
     }
     let mut o = Overlay::default();
-    draw(&mut o, t.pivot, size, used, tool.hot, view);
+    let lit = drag.as_ref().map(|d| d.handle).or(tool.hot);
+    draw(&mut o, t.pivot, size, used, lit, Some(tool.active(used)), view, frame);
     o
 }
 
 /// The handles of `tool` at `c`: arrows for Move, rings for Rotate, boxed lines
 /// for Scale; with Select a small tripod marking the pivot.
-pub fn draw(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>, view: &PickView) {
+/// `active`: the handle the middle button moves by, drawn as Maya draws it,
+/// yellow; `frame` turns the axes.
+#[allow(clippy::too_many_arguments)]
+pub fn draw(
+    o: &mut Overlay,
+    c: Vec3,
+    size: f32,
+    tool: Tool,
+    hot: Option<Handle>,
+    active: Option<Handle>,
+    view: &PickView,
+    frame: Quat,
+) {
+    let start = o.top.len();
+    draw_thin(o, c, size, tool, hot, active, view, frame);
+    thicken(&mut o.top, start, c, view, 3.0);
+}
+
+/// The lines from `start` on drawn `px` pixels wide: copies beside each, a
+/// pixel apart across it as seen from the eye. The overlay's lines are a
+/// pixel wide.
+fn thicken(out: &mut Vec<f32>, start: usize, c: Vec3, view: &PickView, px: f32) {
+    // A pixel at the handles, in the world.
+    let side = (view.eye - c).normalize_or_zero().any_orthonormal_vector();
+    let pixel = match (view.project(c), view.project(c + side)) {
+        (Some(a), Some(b)) if a.distance(b) > 1e-6 => 1.0 / a.distance(b),
+        _ => return,
+    };
+    const V: usize = 7; // position and colour
+    let lines: Vec<f32> = out[start..].to_vec();
+    let half = (px - 1.0) * 0.5;
+    let steps: Vec<f32> = {
+        let n = (half * 2.0).ceil() as i32;
+        (1..=n).map(|k| k as f32 * 0.5).filter(|o| *o <= half + 1e-3).collect()
+    };
+    for seg in lines.chunks_exact(2 * V) {
+        let a = Vec3::new(seg[0], seg[1], seg[2]);
+        let b = Vec3::new(seg[V], seg[V + 1], seg[V + 2]);
+        let across = (b - a).cross(view.eye - (a + b) * 0.5).normalize_or_zero();
+        if across == Vec3::ZERO {
+            continue;
+        }
+        for o in &steps {
+            for sign in [1.0, -1.0] {
+                let d = across * (o * sign * pixel);
+                let mut copy = seg.to_vec();
+                for (k, v) in [(0, a + d), (V, b + d)] {
+                    copy[k..k + 3].copy_from_slice(&v.to_array());
+                }
+                out.extend_from_slice(&copy);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_thin(
+    o: &mut Overlay,
+    c: Vec3,
+    size: f32,
+    tool: Tool,
+    hot: Option<Handle>,
+    active: Option<Handle>,
+    view: &PickView,
+    frame: Quat,
+) {
+    let axes = manip::axes(frame);
     let col = |h: Handle| {
         if hot == Some(h) {
             return colour(1.0, 0.9, 0.2, 1.0);
+        }
+        // The one the middle button moves by: Maya's yellow, a little
+        // softer than the one under the pointer.
+        if active == Some(h) && tool != Tool::Select {
+            return colour(0.95, 0.8, 0.15, 1.0);
         }
         match h {
             Handle::Axis(0) => colour(0.92, 0.22, 0.22, 1.0),
@@ -503,22 +729,22 @@ pub fn draw(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>
     };
     for a in 0..3 {
         let c_a = col(Handle::Axis(a));
-        let tip = c + AXES[a] * size;
+        let tip = c + axes[a] * size;
         match tool {
             Tool::Move => arrow(&mut o.top, c, tip, c_a),
             Tool::Scale => {
                 line(&mut o.top, c, tip, c_a);
                 let k = size * 0.06;
                 for b in 0..3 {
-                    line(&mut o.top, tip - AXES[b] * k, tip + AXES[b] * k, c_a);
+                    line(&mut o.top, tip - axes[b] * k, tip + axes[b] * k, c_a);
                 }
             }
             Tool::Rotate => {
                 for k in 0..RING_STEPS {
                     line(
                         &mut o.top,
-                        manip::ring_point(c, size, a, k),
-                        manip::ring_point(c, size, a, k + 1),
+                        manip::ring_point(c, size, a, k, frame),
+                        manip::ring_point(c, size, a, k + 1, frame),
                         c_a,
                     );
                 }
@@ -529,7 +755,7 @@ pub fn draw(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>
                     x[3] = 0.7;
                     x
                 };
-                line(&mut o.top, c, c + AXES[a] * size * 0.45, dim);
+                line(&mut o.top, c, c + axes[a] * size * 0.45, dim);
             }
         }
     }
@@ -571,6 +797,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -594,7 +821,7 @@ mod tests {
         let size = manip::gizmo_size(&v, t.pivot);
         let from = v.project(t.pivot + Vec3::X * 0.5).unwrap();
         let to = v.project(t.pivot + Vec3::X * 1.0).unwrap();
-        let d = manip::drag_delta(&v, Tool::Move, Handle::Axis(0), t.pivot, size, from, to);
+        let d = manip::drag_delta(&v, Tool::Move, Handle::Axis(0), t.pivot, size, from, to, Quat::IDENTITY, false);
         write(&mut g, mv, d, manip::compose(t.base, d));
         let NodeType::Transform {
             translation,
@@ -623,8 +850,7 @@ mod tests {
             "Cam".into(),
             NodeType::Camera {
                 location: "/camera".into(),
-                translate: [0.0, 1.0, 4.0],
-                rotate: [0.0; 3],
+                xform: crate::types::Xform::at([0.0, 1.0, 4.0], [0.0; 3]),
                 camera: Default::default(),
             },
             egui::pos2(0.0, 200.0),
@@ -634,10 +860,10 @@ mod tests {
         assert!(!t.scales && t.pivot == Vec3::new(0.0, 1.0, 4.0));
         let d = Delta::Rotate(Quat::from_rotation_x(-30f32.to_radians()));
         write(&mut g, cam, d, manip::compose(t.base, d));
-        let NodeType::Camera { rotate, .. } = &g.nodes.iter().find(|n| n.id == cam).unwrap().node_type else {
+        let NodeType::Camera { xform, .. } = &g.nodes.iter().find(|n| n.id == cam).unwrap().node_type else {
             panic!()
         };
-        assert!((rotate[0] + 30.0).abs() < 1e-3, "{rotate:?}");
+        assert!((xform.rotate[0] + 30.0).abs() < 1e-3, "{:?}", xform.rotate);
     }
 
     /// An Edit Primitive's handles sit on its prim and override the part
@@ -684,7 +910,22 @@ mod tests {
     #[test]
     fn selected_prims_are_dragged_into_an_edit_session() {
         let mut g = NodeGraphState::default();
-        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let made = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        // A Transform after it: its own transform is no longer the Cube's to
+        // hold, so the session takes the moves.
+        let cube = g.add_node(
+            "Still".into(),
+            NodeType::Transform {
+                translation: Vec3::ZERO,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(0.0, 100.0),
+        );
+        g.add_connection(made, 0, cube, 0);
+        g.set_view_flag(cube);
         let path = crate::types::cube_location();
         assert!(session_target(&g, &Default::default(), &[]).is_none());
         let t = session_target(&g, &Default::default(), std::slice::from_ref(&path)).expect("handles on the cube");
@@ -751,5 +992,90 @@ mod tests {
         assert!(target(&g, &Default::default()).unwrap().uniform);
         g.selected_node = Some(clip);
         assert!(target(&g, &Default::default()).is_none());
+    }
+
+    /// A prim whose operator holds its transform, nothing after it moving
+    /// it: the handles are that operator's, and a drag writes into it, in its
+    /// Rotate Order. Once an Edit Session holds a move of it, the session's.
+    #[test]
+    fn a_prim_is_moved_where_its_transform_is_held() {
+        let mut g = NodeGraphState::default();
+        let light = g.add_node(
+            "Key".into(),
+            NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Rect)),
+            egui::pos2(0.0, 0.0),
+        );
+        g.set_view_flag(light);
+        let path = "/lights/Key".to_string();
+        let chosen = std::slice::from_ref(&path);
+        assert_eq!(sources(&g, &Default::default(), chosen), vec![Some(light)]);
+        let t = session_target(&g, &Default::default(), chosen).expect("the light's handles");
+        assert_eq!(t.node, light);
+        assert!(t.scales, "a rect light has a size to scale");
+        assert!((t.pivot - Vec3::new(0.0, 2.0, 4.0)).length() < 1e-5);
+        let d = Delta::Translate(Vec3::X);
+        write(&mut g, t.node, into(t.parents, d), manip::compose(t.base, into(t.parents, d)));
+        let (x, _) = g.nodes.iter().find(|n| n.id == light).unwrap().node_type.xform().map(|(x, s)| (*x, s)).unwrap();
+        assert_eq!(x.translate, [1.0, 2.0, 4.0]);
+
+        // The bar typing a world rotation: only the rotation changes.
+        let place = scene_places(&g, &Default::default(), chosen)[0].clone();
+        let typed = crate::selection_bar::typed_held(&place, &x, crate::selection_bar::Space::Global, 1, 1, 45.0);
+        assert_eq!(typed.translate, x.translate);
+        assert!(
+            (typed.rotate[0] + 30.0).abs() < 1e-3 && (typed.rotate[1] - 45.0).abs() < 1e-3,
+            "{:?}",
+            typed.rotate
+        );
+
+        // An Edit Session holding a move of it: the session's from now on.
+        g.record_edits("Move", &[(path.clone(), "translate", serde_json::json!([0.0, 0.0, 0.0]))]);
+        assert_eq!(sources(&g, &Default::default(), chosen), vec![None]);
+        assert_eq!(session_target(&g, &Default::default(), chosen).unwrap().node, SESSION);
+    }
+
+    /// Several prims: each whose operator holds its transform is known with
+    /// that transform, to be written into; the others go to the session.
+    #[test]
+    fn several_prims_are_each_moved_where_held() {
+        let mut g = NodeGraphState::default();
+        let rect = crate::core::light::Light::new(crate::core::light::LightType::Rect);
+        let a = g.add_node("A".into(), NodeType::light(rect.clone()), egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), NodeType::light(rect), egui::pos2(200.0, 0.0));
+        let made = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(400.0, 0.0));
+        let moved = g.add_node(
+            "Moved".into(),
+            NodeType::Transform {
+                translation: Vec3::ZERO,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(400.0, 100.0),
+        );
+        g.add_connection(made, 0, moved, 0);
+        let merge = g.add_node("Merge".into(), NodeType::Merge { mode: Default::default(), inputs: 3 }, egui::pos2(0.0, 300.0));
+        g.add_connection(a, 0, merge, 0);
+        g.add_connection(b, 0, merge, 1);
+        g.add_connection(moved, 0, merge, 2);
+        g.set_view_flag(merge);
+        let chosen: Vec<String> = ["/lights/A", "/lights/B", "/cube"].iter().map(|s| s.to_string()).collect();
+        let t = session_target(&g, &Default::default(), &chosen).unwrap();
+        assert_eq!(t.node, SESSION);
+        let ids: Vec<Option<NodeId>> = t.held.iter().map(|h| h.map(|(id, _)| id)).collect();
+        assert_eq!(ids, vec![Some(a), Some(b), None], "the cube was moved after its Cube");
+        // What a drag does with them, as `run` does.
+        let d = Delta::Translate(Vec3::X);
+        for (k, p) in t.places.iter().enumerate() {
+            if let Some((id, base)) = t.held[k] {
+                let local = into(p.parents, d);
+                write(&mut g, id, local, manip::compose(base, local));
+            }
+        }
+        for id in [a, b] {
+            let x = *g.nodes.iter().find(|n| n.id == id).unwrap().node_type.xform().unwrap().0;
+            assert_eq!(x.translate, [1.0, 2.0, 4.0]);
+        }
     }
 }

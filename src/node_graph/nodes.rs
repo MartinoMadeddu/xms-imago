@@ -16,30 +16,26 @@ pub fn evaluate_node_type(
 ) -> Option<EvalResult> {
     match node_type {
         // A shape is a primitive at its Primitive Location.
-        NodeType::CreateCube { size, location } => Some(shape(location, "/cube", create_cube(*size))),
+        // A shape is a primitive at its Primitive Location, placed by its
+        // own transform (its points in its own space).
+        NodeType::CreateCube { size, location, xform } => Some(shape(location, "/cube", create_cube(*size), xform)),
         NodeType::CreateSphere {
             radius,
             segments,
             location,
-        } => Some(shape(location, "/sphere", create_sphere(*radius, *segments))),
+            xform,
+        } => Some(shape(location, "/sphere", create_sphere(*radius, *segments), xform)),
         NodeType::CreateGrid {
             rows,
             cols,
             size,
             location,
-        } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size))),
-        // A camera: a primitive with no geometry, placed.
-        NodeType::Camera {
-            location,
-            translate,
-            rotate,
-            camera,
-        } => Some(EvalResult::Named(vec![Prim {
-            place: Placement::One(transform_matrix(
-                Vec3::from(*translate),
-                Vec3::from(rotate.map(f32::to_radians)),
-                Vec3::ONE,
-            )),
+            xform,
+        } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size), xform)),
+        // A camera: a primitive with no geometry, placed. No scale: it would
+        // stretch what it sees.
+        NodeType::Camera { location, xform, camera } => Some(EvalResult::Named(vec![Prim {
+            place: Placement::One(crate::types::Xform { scale: [1.0; 3], ..*xform }.matrix()),
             camera: Some(Arc::new(camera.clone())),
             ..Prim::new(
                 crate::types::prim_location(location, &crate::types::camera_location()),
@@ -48,19 +44,15 @@ pub fn evaluate_node_type(
         }])),
 
         // A light: a primitive with no geometry, placed.
-        NodeType::Light {
-            location,
-            translate,
-            rotate,
-            light,
-        } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
+        // Its size is its own (width, height, radius); a scale scales it
+        // too, as USD has it. A dome and a distant light have no size.
+        NodeType::Light { location, xform, light } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
             &crate::types::prim_location(location, crate::core::light::DEFAULT_LOCATION),
             light.clone(),
-            Placement::One(transform_matrix(
-                Vec3::from(*translate),
-                Vec3::from(rotate.map(f32::to_radians)),
-                Vec3::ONE,
-            )),
+            Placement::One(
+                if crate::core::light::scales(light.kind) { *xform } else { crate::types::Xform { scale: [1.0; 3], ..*xform } }
+                    .matrix(),
+            ),
         )])),
 
         // A volume: the grids of the file of the frame cooked, no geometry.
@@ -687,8 +679,11 @@ fn anim_op(node_type: &NodeType, inputs: &[EvalResult], op: impl FnOnce(&AnimDat
 }
 
 /// A shape as a primitive at `location` (see `prim_location`).
-fn shape(location: &str, fallback: &str, mesh: MeshData) -> EvalResult {
-    EvalResult::Named(vec![Prim::new(crate::types::prim_location(location, fallback), mesh)])
+fn shape(location: &str, fallback: &str, mesh: MeshData, xform: &crate::types::Xform) -> EvalResult {
+    EvalResult::Named(vec![Prim {
+        place: Placement::One(xform.matrix()),
+        ..Prim::new(crate::types::prim_location(location, fallback), mesh)
+    }])
 }
 
 /// Whether a Merge in `mode` merges primitives, given its first input. Auto
@@ -1748,6 +1743,7 @@ mod packed_tests {
                 radius: 1.0,
                 segments: 8,
                 location: " root//asset/1 ball ".into(),
+                xform: Default::default(),
             },
             &[],
         );
@@ -1758,6 +1754,7 @@ mod packed_tests {
                 cols: 2,
                 size: 1.0,
                 location: " / ".into(),
+                xform: Default::default(),
             },
             &[],
         );
@@ -1841,6 +1838,7 @@ mod packed_tests {
             NodeType::CreateCube {
                 size: 3.0,
                 location: "/car/body".into(),
+                xform: Default::default(),
             },
             &[],
         );

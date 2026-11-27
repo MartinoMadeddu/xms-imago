@@ -229,7 +229,7 @@ fn make_ice_graph(
 /// `sid`, from input 1: what Get Reference, and a Snippet's References, pick
 /// from.
 fn reference_paths(graph: &NodeGraphState, sid: crate::types::IceGraphId) -> Vec<Vec<String>> {
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     graph
         .nodes
         .iter()
@@ -487,7 +487,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
         .and_then(|n| n.inputs.first())
         .and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.eval_packed(src, out, &pass)
         })
         .unwrap_or_default();
@@ -518,8 +518,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .map(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_light_paths(src, out, &pass)
             })
             .unwrap_or_default()
@@ -535,8 +534,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .map(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_collections(src, out, &pass)
             })
             .unwrap_or_default()
@@ -551,8 +549,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .and_then(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_scene_paths(src, out, &pass)
             })
             .unwrap_or_default()
@@ -563,7 +560,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
     // materials of the scene coming in.
     let (binding_ports, scene_materials) = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::MaterialBinding { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.binding_inputs(sel_id, &pass)
         }
         _ => (vec![], vec![]),
@@ -576,7 +573,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
     // RenderSettings prim.
     let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.eval_render_context(sel_id, &pass)
         }
         _ => Default::default(),
@@ -792,27 +789,30 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
 
     match &mut node.node_type {
         // Create
-        NodeType::CreateCube { size, location } => {
+        NodeType::CreateCube { size, location, xform } => {
             location_group(ui, location, "/cube");
+            super::form::xform_group(ui, xform, true, SHAPE_HINT);
             group(ui, "Shape", None, |f| { f.slider("Size", None, size, 0.1..=5.0, " m"); });
         }
-        NodeType::CreateSphere { radius, segments, location } => {
+        NodeType::CreateSphere { radius, segments, location, xform } => {
             location_group(ui, location, "/sphere");
+            super::form::xform_group(ui, xform, true, SHAPE_HINT);
             group(ui, "Shape", None, |f| {
                 f.slider("Radius", None, radius, 0.1..=3.0, " m");
                 f.slider_u32("Segments", None, segments, 4..=64, "");
             });
         }
-        NodeType::CreateGrid { rows, cols, size, location } => {
+        NodeType::CreateGrid { rows, cols, size, location, xform } => {
             location_group(ui, location, "/grid");
+            super::form::xform_group(ui, xform, true, SHAPE_HINT);
             group(ui, "Shape", None, |f| {
                 f.slider_u32("Rows", None, rows, 1..=100, "");
                 f.slider_u32("Columns", None, cols, 1..=100, "");
                 f.slider("Size", None, size, 0.1..=20.0, " m");
             });
         }
-        NodeType::Camera { location, translate, rotate, camera } => camera_rows(ui, location, translate, rotate, camera),
-        NodeType::Light { location, translate, rotate, light } => super::light::light_rows(ui, location, translate, rotate, light, io, sel_id),
+        NodeType::Camera { location, xform, camera } => camera_rows(ui, location, xform, camera),
+        NodeType::Light { location, xform, light } => super::light::light_rows(ui, location, xform, light, io, sel_id),
         NodeType::TestClip { seconds, fps_num, fps_den } => group(ui, "Clip", Some("A procedural walk on the spot, starting at 01:00:00:00"), |f| {
             f.slider("Length", None, seconds, 0.5..=60.0, " s");
             rate_row(f, fps_num, fps_den);
@@ -3806,11 +3806,13 @@ fn load_mode_rows(
 
 /// The Camera operator: where it is, where it looks, its lens and gate, and a
 /// button to look through it.
+/// What the Transform group of a shape says.
+const SHAPE_HINT: &str = "Where the prim is under its parents: its points stay in its own space, as USD's xformOps. A Transform after it moves it too; the Viewer's handles and the Selection bar write here";
+
 fn camera_rows(
     ui: &mut egui::Ui,
     location: &mut String,
-    translate: &mut [f32; 3],
-    rotate: &mut [f32; 3],
+    xform: &mut crate::types::Xform,
     c: &mut crate::core::camera::Camera,
 ) {
     use crate::core::camera::Projection;
@@ -3832,14 +3834,11 @@ fn camera_rows(
             }
         },
     );
-    group(
+    super::form::xform_group(
         ui,
-        "Transform",
-        Some("It looks down its -Z axis, with +Y up. A Transform after it moves it too"),
-        |f| {
-            f.xyz("Translate", None, translate, 0.05, "");
-            f.xyz("Rotate", Some("Degrees, X then Y then Z"), rotate, 0.5, "°");
-        },
+        xform,
+        false,
+        "It looks down its -Z axis, with +Y up. No scale: it would stretch what it sees. A Transform after it moves it too",
     );
     group(ui, "Lens", Some("As USD has them: focal length and gate in tenths of a scene unit, which is millimetres in a centimetre scene. The field of view comes from their ratio"), |f| {
         f.choice("Projection", None, &mut c.projection, &[(Projection::Perspective, "Perspective"), (Projection::Orthographic, "Orthographic")]);

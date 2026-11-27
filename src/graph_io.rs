@@ -2058,6 +2058,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/set/a".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2066,6 +2067,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/set/b".into(),
+                xform: Default::default(),
             },
             egui::pos2(200.0, 0.0),
         );
@@ -2102,8 +2104,14 @@ mod tests {
             crate::types::EvalResult::Named(p) => p,
             _ => panic!("primitives"),
         };
-        let low = |p: &crate::types::Prim| p.mesh.vertices.iter().map(|v| v[1]).fold(f32::MAX, f32::min);
-        let left = |p: &crate::types::Prim| p.mesh.vertices.iter().map(|v| v[0]).fold(f32::MAX, f32::min);
+        // Where its points are in the world: a shape is placed, its points
+        // in its own space.
+        let world = |p: &crate::types::Prim| {
+            let m = p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY);
+            p.mesh.vertices.iter().map(|v| m.transform_point3(glam::Vec3::from(*v))).collect::<Vec<_>>()
+        };
+        let low = |p: &crate::types::Prim| world(p).iter().map(|v| v.y).fold(f32::MAX, f32::min);
+        let left = |p: &crate::types::Prim| world(p).iter().map(|v| v.x).fold(f32::MAX, f32::min);
         let lifted = prims(&g, lift);
         assert!(low(&lifted[0]) < 0.0 && low(&lifted[1]) > 9.0, "only /set/b is lifted");
         assert!(lifted.iter().all(|p| !p.picked), "the list does not leave the operator");
@@ -2164,6 +2172,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/set/a".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2172,6 +2181,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/set/b".into(),
+                xform: Default::default(),
             },
             egui::pos2(200.0, 0.0),
         );

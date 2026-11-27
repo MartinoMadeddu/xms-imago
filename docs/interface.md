@@ -66,8 +66,14 @@ Timeline, History and Image Viewer.
 - **Selection** (a bar, after XSI's main command panel) shows what is
   selected in
   the Viewer or the Scene Explorer, not an operator:
-  - **Edits go into**: the Edit Session its edits go into (click to select
-    it), or the one the first edit will put in after the viewed operator.
+  - **Edits go into**: where a move goes. A prim made in Imago (a Cube,
+    Sphere, Grid, Camera or Light) that nothing after its operator moved:
+    that operator (click to select it), its Transform group. Anything else
+    (a loaded prim, one a Transform, Reparent or Edit Primitive moved after
+    it, one an Edit Session already moves): the Edit Session, or the one the
+    first edit will put in after the viewed operator. Hide, Show and
+    Deactivate always go into the Edit Session. **Edit Session only** puts
+    every move there too, as an override on top.
   - **Select**: the big arrow (the Select tool), and what a click or a box
     in the Viewer selects, as usdview's: the **Prims**, their **Models**
     (the nearest prim above of kind component, else assembly or group),
@@ -77,14 +83,42 @@ Timeline, History and Image Viewer.
   - **Transform**: the Select, Move, Rotate and Scale tools (Q W E R), and
     the selected prims' Scale, Rotate and Translate, **Local** (under their
     parents) or **Global** (in the world). Typing or dragging a value sets
-    it on every selected prim; a field showing – differs between them.
+    it on every selected prim; a field showing – differs between them. A
+    prim whose operator holds its transform shows that operator's own
+    values, in its Rotate Order; no Scale for a camera, a dome or a distant
+    light.
   - **Edit**: Edit Selected (an Edit Primitive naming them, as Enter in the
-    Scene Explorer), Hide, Show and Deactivate (into the Edit Session).
+    Scene Explorer, or Shift+Enter over the Viewer), Hide, Show and
+    Deactivate (into the Edit Session).
 
-  With no operator selected that has handles of its own (Transform, Camera,
-  Light, Edit Primitive, Edit Poly), the selected prims get the Viewer's
-  handles too, on the first of them, each moving about its own pivot. Up to
-  256 prims. See [Edit Session](usd.md#edit-session).
+  With no operator selected that has handles of its own (Transform, Cube,
+  Sphere, Grid, Camera, Light, Edit Primitive, Edit Poly), the selected
+  prims get the Viewer's handles too, on the first of them, each moving
+  about its own pivot. One prim whose operator holds its transform: that
+  operator's handles, about its Pivot, writing into it. Several: each prim
+  whose operator holds its transform moves in that operator, the rest in
+  the Edit Session. Up to 256 prims. See
+  [Edit Session](usd.md#edit-session).
+
+  The handles follow the Selection bar's **Global** (the world's axes) or
+  **Local** (the prim's own, turned with it); Scale is always along the
+  prim's own axes. As in Maya, with Move, Rotate or Scale a **middle-button
+  drag anywhere** in the Viewer moves by the handle last dragged, drawn
+  yellow: the centre at first (the screen's plane; scaling evenly), Y for
+  Rotate. Not in the Blender navigation style, whose middle button is the
+  camera's.
+- **Right-click** in the Viewer (without dragging) opens a menu. On a prim,
+  selecting it if it is not: Edit Primitive, Go to Operator (and to what
+  moved it, when another), Show in Scene Explorer, Inspect, Select (Parent,
+  Children, Model, Prototype), Hide, Show, Isolate (only these drawn in this
+  Viewer; nothing in the scene changes), Reset Transform, Move Pivot (to the
+  centre or the bottom of its box, the prim staying put; for a prim whose
+  operator holds its transform), Bind Material (a row of the Material
+  Binding upstream, one put in when there is none), Go to Material, Look
+  Through (a camera), Light Links (a light), Frame Selected. On empty space:
+  Frame All, Select All, Select None, Show All (ends Isolate and shows the
+  hidden), Shading, Camera, and Create: a shape, light or camera where the
+  ground was clicked, merged into the scene viewed.
 - **P** over the Node Graph: its **Parameters** over the graph at its top
   right, under its buttons, in a thin border with no title, as in Houdini's
   network editor, half the graph's height at first; P again hides them. Drag their left edge, bottom edge or
@@ -266,8 +300,15 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ## Viewer
 
+A Viewer can be open more than once: add one from a tab bar's **+**.
+Each has its own camera, look-through, shading and Arnold render; only one
+Viewer renders with Arnold at a time, so turning it on in one turns it off
+in the other. The overlays (Settings > Viewer) are shared. Each Viewer holds
+the scene on the GPU again, so a second one costs that memory twice.
+
 - **Shading** at the top: Wireframe, Hidden Line Removal, Shaded or
-  Textured. Shaded whenever Imago starts: the choice is not kept. Under them,
+  Textured, per Viewer. Hidden Line Removal whenever Imago starts: the choice
+  is not kept. Under them,
   **Wireframe on Shaded** draws the polygons' edges over Shaded and Textured,
   in a dark grey, and **Points** every point (of meshes and curves) as a dark
   blue dot, as Houdini's Display Points does, hidden behind what is in front
@@ -427,7 +468,7 @@ everything.
 | Tab | Rows |
 |---|---|
 | Point, Edge, Face, Corner, Object | The geometry's attributes in that context, then its `intrinsic:` values (**Show**: All, Stored or Intrinsics). In brackets, how many attributes the context holds; how many points, faces and corners there are is in the Object tab (`intrinsic:pointCount`…). A list per element (ICE's lists stored with Set Data) is one cell, `[3, 7, 12]` |
-| Properties | The selected prims themselves: type, purpose, binding, visibility, what the file authors and what operators set, with where each comes from; right-click, **Go to Operator** |
+| Properties | The selected prims themselves: type, purpose, binding, visibility, what the file authors and what operators set, with where each comes from; right-click, **Go to Operator**. Its transforms as Solaris lists them, T, R (degrees, X then Y then Z) and S at the frame shown: **Local Transform** (its own under its parents, from the operator that last set it: an Edit Session, Edit Primitive, Transform or Reparent after the operator that made it, else that operator or the Load USD), **Parent to World** and **Local to World** |
 | Joint, Bone | A clip's joints and bones at the current frame |
 
 The geometry is only read when a geometry tab is opened, so a huge stage costs

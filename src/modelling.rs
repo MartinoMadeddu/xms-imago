@@ -19,6 +19,31 @@ use crate::types::{IceGraphId, MeshData, NodeId, NodeType};
 pub struct PolyTool {
     pub tool: Tool,
     pub hot: Option<Handle>,
+    /// Per tool, the handle last dragged: what a middle-button drag anywhere
+    /// in the Viewer moves by, as in Maya (drawn yellow).
+    pub last: [Option<Handle>; 4],
+}
+
+impl PolyTool {
+    fn slot(t: Tool) -> usize {
+        match t {
+            Tool::Select => 0,
+            Tool::Move => 1,
+            Tool::Rotate => 2,
+            Tool::Scale => 3,
+        }
+    }
+
+    /// The handle a middle-button drag uses with tool `t`: the last one
+    /// dragged, else the centre (the screen's plane; scaling evenly), else,
+    /// for Rotate, which has none, Y.
+    pub fn active(&self, t: Tool) -> Handle {
+        self.last[Self::slot(t)].unwrap_or(if t == Tool::Rotate { Handle::Axis(1) } else { Handle::Centre })
+    }
+
+    pub fn set_active(&mut self, t: Tool, h: Handle) {
+        self.last[Self::slot(t)] = Some(h);
+    }
 }
 
 /// The mesh and selection the viewport is editing.

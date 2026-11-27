@@ -8,7 +8,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Node | What it does |
 |---|---|
 | Load USD | Reads a `.usda`, `.usdc`, `.usdz` or Alembic `.abc` file, composed. Gives one primitive per mesh, curves or points prim. Its Mode: sublayered at the file's paths, or the file's default prim referenced or payloaded at a Primitive Location |
-| Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
+| Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location, placed by its Transform group (its points in its own space) |
 | Load VDB | An OpenVDB file, or a sequence, as a USD `Volume` at its Primitive Location: a field per grid (see [Volumes](#volumes)) |
 | Merge | Any number of inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
@@ -26,6 +26,25 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 | Layer Break | Hands the scene on unchanged; a Write USD below it writes only what the operators after it change (see [Layer Break](#layer-break)) |
+
+### The Transform group
+
+Every operator that makes a prim Imago places holds that prim's own
+transform, as Solaris' LOPs do: Cube, Sphere, Grid, Camera and Light have a
+**Transform** group of Translate, Rotate (degrees), Rotate Order (XYZ, USD's
+`rotateXYZ`, for a new one), Scale and Pivot: scale, then rotate, both about
+the pivot, then translate, as the Transform operator. A camera has no Scale
+(it would stretch what it sees), nor a dome or a distant light (they have no
+size in the scene). A light's size is its own: a rect's `inputs:width` and
+`inputs:height`, a disk's or sphere's `inputs:radius`. Scale does not change
+them; it scales the light as USD has it, and with Normalize on its power is
+divided by its area in the world, scale and all. Each is written as it is,
+neither turned into the other.
+
+The Viewer's handles and the Selection bar move such a prim there, at its
+source, while nothing after its operator moved it; else into the Edit
+Session. A Camera or Light saved before keeps its Translate and Rotate and
+turns as it did (ZYX in Rotate Order's terms).
 
 ## Composed stages
 

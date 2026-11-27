@@ -8,6 +8,49 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- A Viewer can be open more than once, each with its own camera,
+  look-through, shading and Arnold render (one renders at a time). The
+  overlays are shared.
+- The Primitive Inspector's Properties list a prim's Local Transform, Parent
+  to World and Local to World, the first with the operator that last set it.
+- Cube, Sphere, Grid, Camera and Light have a Transform group: Translate,
+  Rotate, Rotate Order, Scale (not for a camera, dome or distant light) and
+  Pivot. A light's size stays its width, height or radius.
+- Moving a prim made in Imago from the Viewer or the Selection bar writes
+  into the operator that made it, while nothing after it moved the prim;
+  else into the Edit Session, as before. Edit Session only, in the bar, puts
+  every move there. Several prims dragged at once go the same way, each
+  where it is held.
+- Shift+Enter over the Viewer: an Edit Primitive on the selected prims, as
+  Enter in the Scene Explorer.
+- The Viewer's handles are drawn three pixels wide.
+- The handles turn with the prim in Local space (the Selection bar's Global
+  and Local); Scale is always along its own axes.
+- Maya's middle-button drag: with Move, Rotate or Scale, a middle drag
+  anywhere in the Viewer moves by the handle last dragged, drawn yellow.
+- A right-click menu in the Viewer: on a prim, editing, its operators,
+  selecting around it, Hide, Show, Isolate, Reset Transform, Move Pivot,
+  Bind Material, Look Through, Light Links, Frame; on empty space, framing,
+  selecting, Show All, Shading, Camera, and Create at the clicked point.
+
+### Fixes
+
+- Forms that look at the scene with ICE left out (Edit Primitive, Rename,
+  Reparent, Variant, Rig, Material Binding's lists, the Light Linker, the
+  Image Viewer) no longer leave that scene in the cook cache for the Viewer
+  to show: ICE instances could vanish after selecting such an operator.
+- The template test counts points rather than merging every instance into
+  one mesh, which ran out of memory on ICE: instancing.
+
+### Changed
+
+- A Cube, Sphere or Grid is placed by its transform, its points in its own
+  space, as a loaded prim is: a Transform after it moves its placement, and
+  Write USD writes an `xformOp:transform` rather than moved points. Where it
+  is drawn is the same.
+
 ## [0.4.0] - 2026-11-26
 
 ### Interface

@@ -23,7 +23,7 @@ pub fn rename_in(graph: &NodeGraphState, id: NodeId) -> RenameIn {
     if !matches!(n.node_type, NodeType::Rename { .. } | NodeType::Duplicate { .. }) {
         return RenameIn::default();
     }
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let scene = n
         .inputs
         .first()
@@ -157,7 +157,7 @@ pub fn attrs_in(graph: &NodeGraphState, id: NodeId) -> AttrsIn {
     ) {
         return AttrsIn::default();
     }
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let Some(scene) = n
         .inputs
         .first()

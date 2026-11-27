@@ -528,6 +528,28 @@ pub fn scene_properties(
             continue;
         }
 
+        // Its transforms, as Solaris lists them: its own under its parents
+        // (and the operator that last set it), its parents', and where it is
+        // in the world. Read at the frame shown.
+        if let Some(place) = crate::core::edit_session::places(prims, std::slice::from_ref(path)).into_iter().next() {
+            let from = match xform_by(graph, view, path, node.map(|(_, t)| t)) {
+                Some(x) => (x.name, Some(x.node)),
+                None => made_here(),
+            };
+            let local = crate::selection_bar::compose(place.trs);
+            row("Local Transform", trs_text(place.trs), from);
+            row(
+                "Parent to World",
+                trs_text(crate::selection_bar::parts(place.parents)),
+                ("its parents".into(), None),
+            );
+            row(
+                "Local to World",
+                trs_text(crate::selection_bar::parts(place.parents * local)),
+                ("composed".into(), None),
+            );
+        }
+
         // Its own values: those of a primitive, of a stage prim, of an Xform Imago made.
         let own: Opinions = match (prim, node) {
             (Some(p), _) => Opinions {
@@ -710,9 +732,108 @@ pub fn scene_properties(
     rows
 }
 
+/// A transform as T, R (degrees, X then Y then Z) and S, as Solaris shows it.
+fn trs_text(p: [[f32; 3]; 3]) -> String {
+    let v = |a: [f32; 3]| {
+        let n = |x: f32| {
+            let s = format!("{:.3}", x + 0.0);
+            let s = s.trim_end_matches('0').trim_end_matches('.');
+            if s == "-0" { "0".to_string() } else { s.to_string() }
+        };
+        format!("({}, {}, {})", n(a[0]), n(a[1]), n(a[2]))
+    };
+    format!("T{} R{} S{}", v(p[0]), v(p[1]), v(p[2]))
+}
+
+/// The operator that last set a prim's own transform (its translate, rotate
+/// and scale under its parents), and whether the Selection bar writes its
+/// values there: into the operator that made the prim when nothing after it
+/// moved the prim, into the Edit Session when one holds a move of it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct XformFrom {
+    pub node: NodeId,
+    pub name: String,
+    pub writes: bool,
+}
+
+/// Whether `from` is `to` or upstream of it.
+fn reaches(graph: &crate::node_graph::NodeGraphState, from: NodeId, to: NodeId) -> bool {
+    let mut queue = vec![to];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = queue.pop() {
+        if id == from {
+            return true;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        if let Some(n) = graph.nodes.iter().find(|n| n.id == id) {
+            queue.extend(n.inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)));
+        }
+    }
+    false
+}
+
+/// The operator upstream of `view` that last set the own transform of the
+/// prim at `path`: an Edit Session or Edit Primitive moving it, a Transform
+/// or a Reparent (keeping where it is in the world) after the operator that
+/// made it, else that operator (a shape, a camera, a light, the Load USD of
+/// `tree` for a stage's prim). Only operators between the one that made it
+/// and `view` count, so a Transform on another branch of a Merge does not.
+pub fn xform_by(
+    graph: &crate::node_graph::NodeGraphState,
+    view: NodeId,
+    path: &str,
+    tree: Option<&crate::usd_scene::StageTree>,
+) -> Option<XformFrom> {
+    use crate::core::edit_primitive::TRANSFORM;
+    use crate::types::NodeType;
+    let maker = match tree {
+        Some(t) => load_of(graph, view, t),
+        None => made_by(graph, view, path),
+    };
+    let moves = |e: &crate::core::edit_session::Edits| TRANSFORM.iter().any(|k| e.contains_key(*k));
+    let after = |n: &crate::node_graph::GraphNode| maker.is_none_or(|m| m != n.id && reaches(graph, m, n.id));
+    let last = upstream(graph, view, |n| {
+        after(n)
+            && match &n.node_type {
+                NodeType::EditSession { steps } => {
+                    steps.iter().any(|s| s.on && s.prims.get(path).is_some_and(|e| moves(e)))
+                }
+                NodeType::EditPrimitive { edits, .. } => {
+                    moves(edits) && crate::core::locations::any_names(&n.locations, path)
+                }
+                // It moves what comes in after the prim's maker. A placed
+                // prim's placement; the points of one not placed, so its own
+                // transform is still its maker's.
+                NodeType::Transform { .. } => maker.is_some_and(|m| {
+                    tree.is_some() || graph.nodes.iter().any(|x| x.id == m && x.node_type.holds_xform())
+                }),
+                NodeType::Reparent { parent, keep_world, .. } => {
+                    let parent = parent.trim().trim_end_matches('/');
+                    *keep_world && !parent.is_empty() && path.starts_with(&format!("{parent}/"))
+                }
+                _ => false,
+            }
+    });
+    let named = |id: NodeId| graph.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
+    match last {
+        Some(n) => Some(XformFrom {
+            node: n.id,
+            name: n.name.clone(),
+            writes: matches!(n.node_type, NodeType::EditSession { .. }),
+        }),
+        None => maker.map(|id| XformFrom {
+            node: id,
+            name: named(id),
+            writes: tree.is_none() && graph.nodes.iter().any(|n| n.id == id && n.node_type.holds_xform()),
+        }),
+    }
+}
+
 /// The operator nearest upstream of `view` (itself first) that `is` says is the
 /// one. Bypassed operators do nothing, so they are not it.
-fn upstream<'a>(
+pub(crate) fn upstream<'a>(
     graph: &'a crate::node_graph::NodeGraphState,
     view: NodeId,
     is: impl Fn(&crate::node_graph::GraphNode) -> bool,
@@ -777,7 +898,7 @@ pub fn bound_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &
 
 /// The Material operator upstream of `view` that made the material of this
 /// name. Its id and name.
-fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
+pub(crate) fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
     upstream(graph, view, |n| {
         matches!(n.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. })
@@ -845,9 +966,33 @@ pub(crate) fn load_of(
         .map(|n| n.id)
 }
 
+/// The operator upstream of `view` that made the prim at `path`: the Load
+/// USD of `tree` for a stage's prim, else the shape, camera or light.
+pub fn maker(
+    graph: &crate::node_graph::NodeGraphState,
+    view: NodeId,
+    path: &str,
+    tree: Option<&crate::usd_scene::StageTree>,
+) -> Option<NodeId> {
+    match tree {
+        Some(t) => load_of(graph, view, t),
+        None => made_by(graph, view, path),
+    }
+}
+
+/// The operator upstream of `view` that made the primitive at `path` itself.
+fn made_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str) -> Option<NodeId> {
+    shape_where(graph, view, |p| p == path)
+}
+
 /// The shape operator upstream of `view` that made the primitive at `path`, or
 /// one below it (for an Xform Imago made above a shape).
 fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str) -> Option<NodeId> {
+    shape_where(graph, view, |p| p == path || p.starts_with(&format!("{path}/")))
+}
+
+/// The shape operator nearest upstream of `view` whose prim's path `is` takes.
+fn shape_where(graph: &crate::node_graph::NodeGraphState, view: NodeId, is: impl Fn(&str) -> bool) -> Option<NodeId> {
     use crate::types::{prim_location, NodeType};
     // Each location read as its operator's own, so `$OPNAME` is its name.
     let at = |n: &crate::node_graph::GraphNode| {
@@ -862,10 +1007,7 @@ fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str)
             _ => None,
         }
     };
-    upstream(graph, view, |n| {
-        at(n).is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))
-    })
-    .map(|n| n.id)
+    upstream(graph, view, |n| at(n).is_some_and(|p| is(&p))).map(|n| n.id)
 }
 
 #[cfg(test)]
@@ -1051,6 +1193,95 @@ mod tests {
         assert_eq!(copies(&prims[0], &prims), 2);
     }
 
+    /// A prim's transforms are listed with the operator that last set its
+    /// own: the light that made it, a Transform after a cube (not after the
+    /// light, on another branch of the Merge), an Edit Session moving it.
+    #[test]
+    fn transforms_say_who_set_them() {
+        use crate::types::NodeType;
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        let mut g = crate::node_graph::NodeGraphState::default();
+        let light = g.add_node(
+            "Key".into(),
+            NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Rect)),
+            egui::pos2(0.0, 0.0),
+        );
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(200.0, 0.0));
+        let mv = g.add_node(
+            "Move".into(),
+            NodeType::Transform {
+                translation: glam::Vec3::X,
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(200.0, 100.0),
+        );
+        let merge = g.add_node("Merge".into(), NodeType::merge(), egui::pos2(0.0, 200.0));
+        g.add_connection(cube, 0, mv, 0);
+        g.add_connection(light, 0, merge, 0);
+        g.add_connection(mv, 0, merge, 1);
+        g.set_view_flag(merge);
+        let key = "/lights/Key".to_string();
+        let props = |g: &crate::node_graph::NodeGraphState, path: &str| {
+            let (view, _, scene) = g.evaluate_scene(&pass).unwrap();
+            scene_properties(g, view, &scene, &[path.to_string()])
+        };
+        let get = |rows: &[PropRow], name: &str| rows.iter().find(|r| r.name == name).cloned().unwrap();
+
+        let rows = props(&g, &key);
+        let local = get(&rows, "Local Transform");
+        assert_eq!((local.from.as_str(), local.node), ("Key", Some(light)));
+        assert_eq!(local.value, "T(0, 2, 4) R(-30, 0, 0) S(1, 1, 1)");
+        assert_eq!(get(&rows, "Local to World").value, local.value, "nothing above it moves it");
+        let x = xform_by(&g, merge, &key, None).unwrap();
+        assert!(x.writes, "the light holds its own transform");
+
+        // The cube is placed by its own transform: the Transform after it
+        // moves that, so it set it last, and the bar does not write into it.
+        let rows = props(&g, "/cube");
+        let local = get(&rows, "Local Transform");
+        assert_eq!((local.from.as_str(), local.node), ("Move", Some(mv)));
+        assert_eq!(local.value, "T(1, 0, 0) R(0, 0, 0) S(1, 1, 1)");
+        assert!(!xform_by(&g, merge, "/cube", None).unwrap().writes);
+        // Without the Transform, the Cube holds it, and is written into.
+        let x = xform_by(&g, mv, "/cube", None).unwrap();
+        assert_eq!((x.node, x.writes), (mv, false));
+        let x = xform_by(&g, cube, "/cube", None).unwrap();
+        assert_eq!((x.node, x.writes), (cube, true));
+        // The light moved by a Transform: that is what set it last, and the
+        // bar does not write into it (it moves by its own amount).
+        let mv2 = g.add_node(
+            "MoveLight".into(),
+            NodeType::Transform {
+                translation: glam::Vec3::Y,
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(0.0, 100.0),
+        );
+        g.add_connection(light, 0, mv2, 0);
+        g.add_connection(mv2, 0, merge, 0);
+        let x = xform_by(&g, merge, &key, None).unwrap();
+        assert_eq!((x.node, x.writes), (mv2, false));
+        assert_eq!(get(&props(&g, &key), "Local Transform").value, "T(0, 3, 4) R(-30, 0, 0) S(1, 1, 1)");
+        g.add_connection(light, 0, merge, 0);
+
+        // An Edit Session moving the light: it is what set it last.
+        let session = g.add_node("EditSession".into(), NodeType::EditSession { steps: vec![] }, egui::pos2(0.0, 300.0));
+        g.add_connection(merge, 0, session, 0);
+        g.set_view_flag(session);
+        g.record_edits("Move", &[(key.clone(), "translate", serde_json::json!([5.0, 0.0, 0.0]))]);
+        let rows = props(&g, &key);
+        let local = get(&rows, "Local Transform");
+        assert_eq!((local.from.as_str(), local.node), ("EditSession", Some(session)));
+        assert!(local.value.starts_with("T(5, 0, 0)"), "{}", local.value);
+        assert!(xform_by(&g, session, &key, None).unwrap().writes);
+    }
+
     #[test]
     fn properties_say_what_a_prim_has_and_where_from() {
         use crate::core::properties::{SetContext, Value};
@@ -1063,6 +1294,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/root/geo/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
