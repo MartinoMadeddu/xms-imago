@@ -964,3 +964,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 26/11/2026: manip: axes(frame), hit_handle/drag_delta/ring_point take a frame; drag_delta `anywhere` for middle drags. gizmo::Target.frame (the prim's world rotation), Drag.frame/middle; space read from the Selection bar's temp data; PolyTool.last per tool. viewer::menu: context_menu on the Viewer's response, Opened, PANE request taken in main by Layout::bring, Isolate filters scene::build's prims, frame_request; Xform::set_pivot keeps the matrix. (Martino)
 - 27/11/2026: Release 0.5.0. (Martino)
 - 27/11/2026: README: two new screenshots (xms_front.png: two Viewers, Arnold live and Hidden Line Removal; xms_edit_session.png: a move in the Edit Session), key points Editing in the Viewer and Inspection. (Martino)
+- 27/11/2026: Release 0.5.1. (Martino)

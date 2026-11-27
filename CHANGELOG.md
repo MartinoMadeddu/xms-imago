@@ -8,6 +8,14 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-27
+
+### Documentation
+
+- The README shows the new interface: two Viewers, Arnold live in one, and
+  a move kept in an Edit Session. New key points: editing in the Viewer and
+  the Primitive Inspector.
+
 ## [0.5.0] - 2026-11-27
 
 ### Interface
