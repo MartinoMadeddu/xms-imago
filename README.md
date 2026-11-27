@@ -20,6 +20,11 @@ below](docs/xms_front.png)
 the Edit Session at the end of the Node Graph, its Parameters open over the
 graph](docs/xms_edit_session.png)
 
+![The same shot in the xms_3split_layout: the forest seen through the shot's
+camera in the Viewer, its stage in the Scene Explorer, Load USD, Prune
+Primitives, Reparent, Set Variable, Render Commons and Render Settings in the
+Node Graph, and Render Commons' Parameters on the right](docs/xms_3split_layout.png)
+
 The scene is a shot of [Spring](https://studio.blender.org/projects/spring/pages/about/),
 © Blender Studio, under CC BY 4.0, as USD: from the [USD Working Group's
 Sample Assets](https://lf-aswf.atlassian.net/wiki/spaces/WGUSD/pages/11274584/Sample+Assets),
