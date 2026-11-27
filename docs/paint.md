@@ -2,7 +2,9 @@
 
 **Planned work for the future: nothing here is built yet.** Written 10
 November 2026 from Martino's brief, with the changes agreed after reviewing
-it. It is the direction to take when painting starts, after the VDB work.
+it; updated 27 November 2026: environment work first (density and IDs for
+scatters), one brush shared with [Groom](groom.md), and the environment
+workflow below. Painting is the next large piece of work.
 
 ## What it is for
 
@@ -59,6 +61,14 @@ point (the corner's sample).
 
 ## The brush
 
+One brush, shared: Paint first, then the Groom Session's brushes and the
+Scatter Session's, later sculpting. What it does (hit, falloff, symmetry,
+strokes, undo, what it shows) is written once, so all of them are as fast.
+
+- **Speed:** while a stroke is painted, only the painted values and their
+  colours in the Viewer change, on the GPU; nothing below the Paint operator
+  cooks. What reads the paint (a scatter, a groom) cooks when the stroke ends,
+  or, as an option, at a few frames a second while it is painted.
 - **Hit:** a ray against the triangle BVH.
 - **Samples under it:** each sample's position in the world, made from its
   face's corners, in a k-d tree (`KdPointTree`), searched within the radius.
@@ -132,18 +142,49 @@ levels down to point colours), in a float or half-float format, so the
 border texel of a diagonal edge (`c3 = c1 + c2 − c0`) is stored as it is,
 values never changed to fit 0 to 1.
 
+## The environment workflow
+
+A ground dressed with a meadow reads: terrain (Load USD), Surface Masks,
+Paint, Scatter (the prototypes from a library on its second input), Scatter
+Session, Merge with the terrain, its material.
+
+- **Surface Masks:** the procedural base, as ICE compounds: slope, height,
+  curvature, cavity, noise, distance to a curve. Attributes on the ground a
+  Paint channel can be laid over.
+- **Paint:** its channels on the ground. **density** (Float) over the slope
+  mask, multiplied; **biome** (ID: 1 grass, 2 fern, 3 rock, shown as a
+  palette); others as wanted (wetness, a variant). The Viewer shows one
+  channel at a time: a float as a heat map, an ID in its palette colours.
+  Masking by the slope (the normal's angle) and by another channel.
+- **Scatter:** one operator holding an ICE graph of compounds, shown as a
+  list in its Parameters, as Groom Modify is: Scatter on Surface by density,
+  the prototype by the biome ID, random scale, rotation and align to the
+  normal, keep apart, cull by camera. Its output a PointInstancer. Each
+  instance's ID comes from its place on the ground (the same hard rule as
+  the groom's curves), so a repainted density keeps the instances that stay
+  where they were.
+- **Scatter Session:** placing by hand, as the Groom Session is for curves:
+  brushes to place, move, rotate, scale, swap and delete instances, in
+  layers by instance ID, with Explode and Freeze. Edits stay on the
+  instances that remain when the scatter upstream changes.
+
 ## Order to do it in
 
-1. **Point mode:** a float channel; add, smooth and flood, falloff and
-   symmetry; the colours in the Viewer; the `.mcol` file named by its
-   content and written atomically; one attribute (scatter density), written
-   to USD as a primvar.
-2. **Layering** over an upstream attribute, with the blend modes.
-3. **Mesh Colors:** the data, reading at places in ICE, the brush on them,
+1. **The shared brush and Paint in point mode:** a float and an ID channel;
+   add, subtract, set, smooth, flood and erase, falloff and symmetry,
+   masking by slope; the colours in the Viewer (a heat map, an ID palette);
+   the `.mcol` file named by its content and written atomically; written to
+   USD as primvars.
+2. **Scatter reading it:** density and the biome ID into Scatter on Surface
+   and the Instancer (both built), as the list-of-compounds operator; stable
+   instance IDs.
+3. **Layering** over an upstream attribute, with the blend modes, and the
+   Surface Masks compounds.
+4. **Scatter Session:** placing, moving and deleting instances by brush.
+5. **Mesh Colors:** the data, reading at places in ICE, the brush on them,
    the split faces in the Viewer.
-4. **The other channels:** colour, ID, direction.
-5. **Mesh Color Textures**, if needed.
-6. **Baking** for the renderers.
+6. **The other channels** (colour, direction), **Mesh Color Textures** if
+   needed, **baking** for the renderers.
 
 ## Left for later, or to find out
 

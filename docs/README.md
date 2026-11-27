@@ -33,7 +33,10 @@
   agreed: what Imago computes sent to the renderer natively
 - [Paint](paint.md): planned work, not built yet: painting attributes on
   geometry (per point, or as Mesh Colors per face), read by scatters, groom,
-  crowds and deformers
+  crowds and deformers, and the environment workflow built on it
+- [Groom](groom.md): planned work, not built yet: curves planted, brushed,
+  grown and modified, procedural and interactive (Groom Session, Hair
+  Generate, Groom Modify)
 - [Colour](colour.md): OpenColorIO, `$OCIO`'s config or Imago's own, the
   Viewer's and the Image Viewer's displays and views
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and
