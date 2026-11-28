@@ -37,7 +37,9 @@ Explorer (History a tab behind it), and the Node Graph, wide, its Parameters
 over it on **P**; no Parameters pane (Window > Parameters docks one).
 
 The **Tools and Selection bars** are not tabs: they sit down the window's
-sides, fixed in place and width, in the panes' grey. Window > Tools and Window > Selection show and hide them in any
+sides, fixed in place and width, in the panes' grey, each titled along its
+top as a pane's tab bar: **Operators** on the left, **Selection Tool** on
+the right. Window > Tools and Window > Selection show and hide them in any
 layout, and a layout saved keeps whether each is shown.
 
 | To | Do this |

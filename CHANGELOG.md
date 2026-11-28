@@ -8,6 +8,18 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- The side bars have titles along their tops: Operators on the left,
+  Selection Tool on the right.
+
+### Documentation
+
+- Credits for Mesh Colors: Cem Yuksel, John Keyser and Donald H. House,
+  with links to the papers, in the README and docs/paint.md.
+- The README: Paint among the key points; the front screenshot large, the
+  other two side by side under it.
+
 ## [0.5.2] - 2026-11-28
 
 ### Added

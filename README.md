@@ -11,19 +11,18 @@ OSs, non destructive procedural workflow with USD scene at its core with
 advanced crossdata manipulation access via the Integrated Creation Engine (ICE)
 and fast mocap processing tools.
 
-![XMS | Imago with a shot of Spring in two Viewers: Arnold rendering live
-through the shot's camera on the left, Hidden Line Removal on the right, the
-Tools bar down the left and the Selection bar down the right, the Node Graph
-below](docs/xms_front.png)
+<p><img src="docs/xms_front.png" width="100%" alt="XMS | Imago with a shot
+of Spring in two Viewers: Arnold rendering live through the shot's camera on
+the left, Hidden Line Removal on the right, the Operators bar down the left
+and the Selection Tool bar down the right, the Node Graph below"></p>
 
-![The same shot shaded, a rock moved in the Viewer: the move is a step of
-the Edit Session at the end of the Node Graph, its Parameters open over the
-graph](docs/xms_edit_session.png)
-
-![The same shot in the xms_3split_layout: the forest seen through the shot's
-camera in the Viewer, its stage in the Scene Explorer, Load USD, Prune
-Primitives, Reparent, Set Variable, Render Commons and Render Settings in the
-Node Graph, and Render Commons' Parameters on the right](docs/xms_3split_layout.png)
+<p><img src="docs/xms_edit_session.png" width="49%" alt="The same shot shaded,
+a rock moved in the Viewer: the move is a step of the Edit Session at the end
+of the Node Graph, its Parameters open over the graph">
+<img src="docs/xms_3split_layout.png" width="49%" alt="The same shot in the
+three-split layout: the forest seen through the shot's camera in the Viewer,
+its stage in the Scene Explorer, and Render Commons' Parameters on the
+right"></p>
 
 The scene is a shot of [Spring](https://studio.blender.org/projects/spring/pages/about/),
 © Blender Studio, under CC BY 4.0, as USD: from the [USD Working Group's
@@ -53,6 +52,13 @@ One program, a few crates of its own, and open libraries under them.
   [Edit Session](docs/usd.md#edit-session).
 - **Inspection:** the Primitive Inspector lists a prim's every value, its
   local and world transforms among them, with the operator that set each.
+- **Paint:** values painted on geometry in the Viewer, a float (density) or
+  IDs (biomes), with one brush: add, subtract, set, smooth (Shift), flood
+  and erase, mirror and a slope limit. ICE reads them as attributes, so
+  scattering and instancing stay in ICE graphs. The values are saved beside
+  the graph. Mesh Colors, after [Cem
+  Yuksel](https://www.cemyuksel.com/research/meshcolors/), are next. See
+  [Paint](docs/paint.md).
 - **Edit Poly:** a whole modelling session in one node.
 - **Rigging-Mocap:** procedural rigging and dynamic/ragdoll mo-cap clean up and
   process.
@@ -170,4 +176,7 @@ The example files' authors and licences are in
 Copyright (c) 2009-present Contributors to the Open Shading Language project,
 BSD-3-Clause (the licence is in `crates/xms-ice/src/noise.rs`). The icons are
 [Phosphor Icons](https://phosphoricons.com), Regular, Light and Fill weights, MIT
-(the licence is in `assets/fonts/Phosphor-LICENSE.txt`).
+(the licence is in `assets/fonts/Phosphor-LICENSE.txt`). Paint's Mesh Colors
+are Cem Yuksel, John Keyser and Donald H. House's ([the
+papers](https://www.cemyuksel.com/research/meshcolors/); see
+[Paint](docs/paint.md#credits)).

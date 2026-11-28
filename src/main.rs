@@ -659,7 +659,7 @@ pub(crate) fn draw_ui(
             .exact_size(TOOLS_BAR)
             .resizable(false)
             .frame(bar)
-            .show(root, |ui| fixed(ui, |ui| tools::draw(ui, &mut *graph)));
+            .show(root, |ui| fixed(ui, |ui| titled(ui, "Operators", |ui| tools::draw(ui, &mut *graph))));
     }
     if layout.bars.selection {
         egui::Panel::right("selection_bar")
@@ -667,7 +667,11 @@ pub(crate) fn draw_ui(
             .resizable(false)
             .frame(bar)
             .show(root, |ui| {
-                fixed(ui, |ui| selection_bar::draw(ui, &mut *graph, &*subnets, &mut *hierarchy, &mut *poly_tool))
+                fixed(ui, |ui| {
+                    titled(ui, "Selection Tool", |ui| {
+                        selection_bar::draw(ui, &mut *graph, &*subnets, &mut *hierarchy, &mut *poly_tool)
+                    })
+                })
             });
     }
 
@@ -1025,6 +1029,21 @@ fn fixed(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     let rect = ui.max_rect();
     let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
     inner.set_clip_rect(rect.intersect(ui.clip_rect()));
+    add(&mut inner);
+}
+
+/// A side bar's title along its top, as a pane's tab bar, and the bar's
+/// content under it.
+fn titled(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let tabs = theme::dock_style(ui.style());
+    let all = ui.max_rect();
+    let top = egui::Rect::from_min_size(all.min, egui::vec2(all.width(), tabs.tab_bar.height));
+    let p = ui.painter();
+    p.rect_filled(top, 0.0, tabs.tab.active.bg_fill);
+    p.text(top.center(), egui::Align2::CENTER_CENTER, title, egui::FontId::proportional(13.0), tabs.tab.active.text_color);
+    let below = egui::Rect::from_min_max(egui::pos2(all.min.x, top.max.y + 4.0), all.max);
+    let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(below).layout(*ui.layout()));
+    inner.set_clip_rect(below.intersect(ui.clip_rect()));
     add(&mut inner);
 }
 

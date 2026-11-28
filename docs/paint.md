@@ -1,10 +1,13 @@
-# Paint (plan)
+# Paint
 
-**Planned work for the future: nothing here is built yet.** Written 10
-November 2026 from Martino's brief, with the changes agreed after reviewing
-it; updated 27 November 2026: environment work first (density and IDs for
-scatters), one brush shared with [Groom](groom.md), and the environment
-workflow below. Painting is the next large piece of work.
+**Partly built.** The Paint operator in point mode, its brush and its file
+are in Imago (0.5.2); Mesh Colors and the rest below are planned. Written 10
+November 2026 from Martino's brief; updated 27 November 2026: environment
+work first (density and IDs for scatters), one brush shared with
+[Groom](groom.md), and the environment workflow below.
+
+Mesh Colors are Cem Yuksel's work, with John Keyser and Donald H. House: see
+[Credits](#credits) for the papers.
 
 ## What it is for
 
@@ -198,3 +201,35 @@ ICE** (File > Templates > Martino > Paint) is this:
   2010.
 - Yuksel. "Mesh Color Textures." HPG 2017.
   <https://www.cemyuksel.com/research/meshcolors/mesh_color_textures.pdf>
+
+## Credits
+
+Mesh Colors, and the Mesh Color Textures this plan may use, are the work of
+Cem Yuksel and his co-authors. Their papers, from [Mesh
+Colors](https://www.cemyuksel.com/research/meshcolors/):
+
+- Cem Yuksel, John Keyser, Donald H. House. [Mesh
+  Colors](https://www.cemyuksel.com/research/meshcolors/meshcolors_tog.pdf).
+  ACM Transactions on Graphics 29(2), 2010
+  ([doi](http://doi.acm.org/10.1145/1731047.1731053)); first a [technical
+  report](https://www.cemyuksel.com/research/meshcolors/meshcolors_techreport.pdf),
+  Texas A&M University, 2008.
+- Cem Yuksel. [Hardware Accelerated Mesh
+  Colors](https://www.cemyuksel.com/research/meshcolors/hw_meshcolors_i3d2016_poster_abstract.pdf).
+  I3D 2016, research poster.
+- Cem Yuksel. [Mesh Colors with Hardware Texture
+  Filtering](https://www.cemyuksel.com/research/meshcolors/hw_meshcolors_siggraph2016_talk.pdf).
+  SIGGRAPH 2016 Talks.
+- Cem Yuksel. [Mesh Color
+  Textures](https://www.cemyuksel.com/research/meshcolors/mesh_color_textures.pdf).
+  High-Performance Graphics 2017.
+- Cem Yuksel, Sylvain Lefebvre, Marco Tarini. [Rethinking Texture
+  Mapping](https://www.cemyuksel.com/research/meshcolors/Rethinking_Texture_Mapping_STAR.pdf).
+  Computer Graphics Forum 38(2), Eurographics 2019.
+- Agatha Mallett, Larry Seiler, Cem Yuksel. [Patch Textures: Hardware
+  Implementation of Mesh
+  Colors](https://www.cemyuksel.com/research/meshcolors/patchtextures_hpg2019.pdf).
+  High-Performance Graphics 2019; and [Patch Textures: Hardware Support for
+  Mesh
+  Colors](https://www.cemyuksel.com/research/meshcolors/patchtextures_tvcg2020.pdf),
+  IEEE TVCG 2020.
