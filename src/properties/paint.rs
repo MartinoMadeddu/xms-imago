@@ -80,11 +80,12 @@ pub fn square(ui: &mut egui::Ui, icon: &str, label: Option<&str>, selected: bool
 /// The brush's ops as square icon buttons, laid out by the caller's `ui`.
 pub fn tool_buttons(ui: &mut egui::Ui, b: &mut paint::Brush, kind: Option<ChannelKind>, size: egui::Vec2) {
     for op in TOOLS {
-        if square(ui, icon(op), None, b.op == op, enabled(op, kind), size)
+        if square(ui, icon(op), None, paint::brush_on() && b.op == op, enabled(op, kind), size)
             .on_hover_text(hint(op))
             .clicked()
         {
             b.op = op;
+            paint::set_brush_on(true);
         }
     }
 }

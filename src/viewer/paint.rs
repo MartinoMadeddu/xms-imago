@@ -181,23 +181,50 @@ impl Viewer {
     ) -> bool {
         let Some((id, channels, active)) = selected_paint(input.graph) else {
             self.paint.stroke = None;
+            self.paint.node = None;
             return false;
         };
+        // A Paint operator newly selected: the brush is on.
+        if self.paint.node != Some(id) {
+            self.paint.node = Some(id);
+            paint::set_brush_on(true);
+        }
+        if !paint::brush_on() {
+            if let Some(s) = self.paint.stroke.take() {
+                self.commit(input, s.node, s.target, &s.channel, s.values, "paint");
+            }
+            self.paint.sizing = None;
+            return false;
+        }
         let Some(channel) = channels.get(active).cloned() else { return true };
         self.paint_targets(input, id);
-        let (pos, pressed, down, smaller, larger) = ctx.input(|i| {
+        let (pos, pressed, down, smaller, larger, b_held) = ctx.input(|i| {
             (
                 i.pointer.hover_pos(),
                 i.pointer.button_pressed(egui::PointerButton::Primary),
                 i.pointer.button_down(egui::PointerButton::Primary),
                 i.key_pressed(egui::Key::OpenBracket),
                 i.key_pressed(egui::Key::CloseBracket),
+                i.key_down(egui::Key::B),
             )
         });
         let mut b = paint::brush();
         if free && (smaller || larger) {
             b.radius *= if larger { 1.25 } else { 0.8 };
             paint::set_brush(b);
+        }
+        // B held and the left button dragged: the radius, by the drag across.
+        if let Some((x0, r0, at, i)) = self.paint.sizing {
+            if down {
+                if let Some(p) = pos {
+                    b.radius = (r0 * ((p.x - x0) * 0.01).exp()).max(0.001);
+                    paint::set_brush(b);
+                }
+                self.brush_ring(at, i, &b, overlay);
+                return true;
+            }
+            self.paint.sizing = None;
+            return true;
         }
 
         // Under the pointer: the nearest prim hit.
@@ -235,6 +262,14 @@ impl Viewer {
             }
             self.paint.stroke = None;
         } else
+        // B and the left button: sizing, not painting.
+        if pressed && free && b_held {
+            if let (Some(p), Some((at, i))) = (pos, hit) {
+                self.paint.sizing = Some((p.x, b.radius, at, i));
+            }
+            return true;
+        }
+
         // A stroke: begun over a prim, dabs along the way, kept when let go.
         if pressed && free {
             if let Some((at, i)) = hit {
@@ -266,29 +301,34 @@ impl Viewer {
             self.commit(input, s.node, s.target, &s.channel, s.values, "paint");
         }
 
-        // The brush: a ring on the surface, about the normal there.
         if let Some((at, i)) = hit {
-            let s = self.surface(i);
-            let mut near = vec![];
-            s.tree.near(at.to_array(), 1, 0.0, &mut near);
-            let n = near.first().map(|(j, _)| s.normals[*j as usize]).unwrap_or(Vec3::Y);
-            let (u, v) = n.any_orthonormal_pair();
-            let c = [1.0, 1.0, 1.0, 1.0];
-            let ring = |r: f32, out: &mut Vec<f32>| {
-                for k in 0..48 {
-                    let a0 = k as f32 / 48.0 * std::f32::consts::TAU;
-                    let a1 = (k + 1) as f32 / 48.0 * std::f32::consts::TAU;
-                    let p0 = at + (u * a0.cos() + v * a0.sin()) * r + n * r * 0.02;
-                    let p1 = at + (u * a1.cos() + v * a1.sin()) * r + n * r * 0.02;
-                    edit::line(out, p0, p1, c);
-                }
-            };
-            ring(b.radius, &mut overlay.top);
-            ring(b.radius * 0.5, &mut overlay.top);
-            edit::line(&mut overlay.top, at, at + n * b.radius * 0.5, c);
+            self.brush_ring(at, i, &b, overlay);
         }
         true
     }
+
+    /// The brush: a ring on the surface at `at` on target `i`, about the
+    /// normal there.
+    fn brush_ring(&mut self, at: Vec3, i: usize, b: &paint::Brush, overlay: &mut edit::Overlay) {
+            let s = self.surface(i);
+        let mut near = vec![];
+        s.tree.near(at.to_array(), 1, 0.0, &mut near);
+        let n = near.first().map(|(j, _)| s.normals[*j as usize]).unwrap_or(Vec3::Y);
+        let (u, v) = n.any_orthonormal_pair();
+        let c = [1.0, 1.0, 1.0, 1.0];
+        let ring = |r: f32, out: &mut Vec<f32>| {
+            for k in 0..48 {
+                let a0 = k as f32 / 48.0 * std::f32::consts::TAU;
+                let a1 = (k + 1) as f32 / 48.0 * std::f32::consts::TAU;
+                let p0 = at + (u * a0.cos() + v * a0.sin()) * r + n * r * 0.02;
+                let p1 = at + (u * a1.cos() + v * a1.sin()) * r + n * r * 0.02;
+                edit::line(out, p0, p1, c);
+            }
+        };
+        ring(b.radius, &mut overlay.top);
+        ring(b.radius * 0.5, &mut overlay.top);
+        edit::line(&mut overlay.top, at, at + n * b.radius * 0.5, c);
+            }
 
     /// The brush's view of target `i`, made once.
     fn surface(&mut self, i: usize) -> Arc<Surface> {
@@ -345,6 +385,11 @@ impl Viewer {
 pub struct State {
     pub targets: Targets,
     pub stroke: Option<Stroke>,
+    /// The Paint operator selected last.
+    pub node: Option<NodeId>,
+    /// Sizing the brush (B and a drag): where the drag began, the radius
+    /// then, and the place on target `i` the ring stays at.
+    pub sizing: Option<(f32, f32, Vec3, usize)>,
 }
 
 /// The brush's tools as a column of square buttons at the Viewer's left,

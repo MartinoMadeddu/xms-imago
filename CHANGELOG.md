@@ -23,6 +23,10 @@ version's heading when you tag it.
 - Paint: Shift smooths while painting a float channel. Flood is a brush op:
   click the prim to fill. Strokes and floods are named in the History
   ("Paint: paint density on /terrain/ground").
+- Over the Viewer, Q, W, E and R always pick Select, Move, Rotate and
+  Scale, shown in the Selection bar; with a Paint operator selected they
+  turn the brush off and B turns it on again. B and a left drag size the
+  brush.
 
 ### Changed
 

@@ -384,7 +384,11 @@ through red and orange, to pale yellow for 1), an ID in its palette
 colours. The left button paints with the brush set in its Parameters (Add,
 Subtract, Set, Smooth, Flood, Erase; Radius, Strength, Value or ID, Mirror
 X, Slope Limit); `[` and `]` size it, and a ring shows it on the surface.
-Hold Shift to smooth while painting (float channels). Flood is a brush
+Hold Shift to smooth while painting (float channels); hold B and drag
+with the left button to size the brush. Over the Viewer, Q, W, E and R
+pick Select, Move, Rotate and Scale (shown in the Selection bar) whatever
+is selected, and turn the brush off; B or a brush button turns it on
+again, as does selecting a Paint operator. Flood is a brush
 too: a click fills the prim under it with the Value. The brush's tools are
 also a column of square buttons at the Viewer's left, under the A, the
 same brush as the Parameters' buttons. Only the

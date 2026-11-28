@@ -970,3 +970,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 27/11/2026: Paint operator in point mode: float and ID channels, the shared brush, the heat map and palette in the Viewer, the .mcol file beside the graph; template Paint: a meadow scattered in ICE; docs/paint.md: scattering stays in ICE, no Scatter operator. (Martino)
 - 27/11/2026: Paint: brush tools as square icon buttons in Parameters and down the Viewer's left; Paint category orchid; meadow Hills snippet fixed. (Martino)
 - 27/11/2026: Paint: smaller icon-only brush buttons; Flood a click-to-fill brush op; Shift smooths while painting; History names paint steps. (Martino)
+- 28/11/2026: Viewer: Q/W/E/R always pick the selection tools; Paint: B turns the brush back on, B + left drag sizes it. (Martino)

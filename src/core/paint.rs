@@ -354,6 +354,18 @@ pub static BRUSH: std::sync::Mutex<Brush> = std::sync::Mutex::new(Brush {
     max_slope: 90.0,
 });
 
+/// Whether the Viewer's left button is the brush's (B, or picking a brush
+/// tool) or the selection tools' (Q, W, E, R).
+static BRUSH_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub fn brush_on() -> bool {
+    BRUSH_ON.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_brush_on(on: bool) {
+    BRUSH_ON.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn brush() -> Brush {
     BRUSH.lock().map(|b| *b).unwrap_or_default()
 }

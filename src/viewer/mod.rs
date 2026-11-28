@@ -299,6 +299,28 @@ impl Viewer {
             size: glam::Vec2::new(rect.width(), rect.height()),
             eye,
         };
+        // Q, W, E, R over the Viewer: the selection tools, whatever is
+        // selected (and the brush off); B the brush again.
+        {
+            let over = ui.ctx().input(|i| i.pointer.hover_pos()).is_some_and(|p| rect.contains(p));
+            if over && !ui.ctx().egui_wants_keyboard_input() {
+                use crate::core::manip::Tool;
+                let keys = ui.ctx().input(|i| {
+                    let plain = !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command;
+                    [egui::Key::Q, egui::Key::W, egui::Key::E, egui::Key::R, egui::Key::B]
+                        .map(|k| plain && i.key_pressed(k))
+                });
+                for (k, t) in [Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale].into_iter().enumerate() {
+                    if keys[k] {
+                        input.tool.tool = t;
+                        crate::core::paint::set_brush_on(false);
+                    }
+                }
+                if keys[4] {
+                    crate::core::paint::set_brush_on(true);
+                }
+            }
+        }
         let mut overlay = edit::run(
             ui.ctx(),
             rect,
