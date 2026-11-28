@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-28
+
 ### Added
 
 - Paint: a new operator painting attributes on the points of the prims it
